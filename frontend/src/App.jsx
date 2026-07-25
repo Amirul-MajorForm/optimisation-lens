@@ -131,6 +131,7 @@ export default function App() {
           metaCampaigns={meta?.campaigns}
           googleCampaigns={showGoogle ? google?.campaigns : null}
           loading={loading}
+          client={client}
         />
       ),
     },

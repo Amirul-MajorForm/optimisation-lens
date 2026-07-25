@@ -1,9 +1,74 @@
 import { useState, Fragment } from 'react';
 import { CHART, fmt } from '../theme.js';
 
-function truncate(str, n) {
+// Known acronyms that stay all-caps
+const ACRONYMS = new Set(['ym', 'cta', 'fb', 'ig', 'sg', 'hk', 'my', 'au', 'lpv', 'cpm', 'cpc', 'cpl', 'cpa', 'roas', 'lal', 'wca', 'tof', 'mof', 'bof', 'dsa', 'abo', 'cbo', 'usp']);
+
+function titleCase(str) {
+  return str.replace(/\b([a-z]+)\b/gi, w =>
+    ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  );
+}
+
+// Ordered: check longer/more-specific patterns first
+const OBJECTIVES = [
+  [/TEACHER[\s_]TRAINING|YMTT/i, 'Teacher Training'],
+  [/STARTER[\s_]CLASS/i, 'Starter Classes'],
+  [/FREE[\s_]CLASS/i, 'Free Class'],
+  [/ALWAYS[\s_]ON/i, 'Always On'],
+  [/\bRETARGET/i, 'Retargeting'],
+  [/\bAWARENESS\b/i, 'Awareness'],
+  [/\bCONVERSION/i, 'Conversions'],
+  [/\bTRAFFIC\b/i, 'Traffic'],
+  [/\bENGAGE/i, 'Engagement'],
+  [/\bREACH\b/i, 'Reach'],
+  [/\bBRAND\b/i, 'Brand'],
+  [/\bLEADS?\b/i, 'Leads'],
+];
+
+function prettifyCampaign(name, client) {
+  // Market from prefix
+  let market = '';
+  if (/^HK[_\s]/i.test(name)) market = 'HK';
+  else if (/^SG[_\s]/i.test(name)) market = 'SG';
+  else if (/^MY[_\s]/i.test(name)) market = 'MY';
+
+  // Brand from client id
+  let brand = '';
+  if (client && client.startsWith('ym')) brand = 'YM';
+  else if (client === 'strong' || /strong/i.test(name)) brand = 'Strong';
+
+  // Objective
+  let objective = '';
+  for (const [re, label] of OBJECTIVES) {
+    if (re.test(name)) { objective = label; break; }
+  }
+
+  const parts = [brand, market, objective].filter(Boolean);
+  // Only use parsed form if we extracted at least 2 meaningful parts
+  if (parts.length >= 2) return parts.join(' ');
+
+  // Fallback: strip known junk tokens, underscores → spaces, title case
+  const cleaned = name
+    .replace(/^(SG|HK|MY|YM|YMTT|META|GOOGLE|FB|IG)[_\s]/gi, '')
+    .replace(/\b(ABO|CBO|CPL|CPM|META|GOOGLE|2024|2025|2026)\b/gi, '')
+    .replace(/[_]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return titleCase(cleaned.toLowerCase()) || name;
+}
+
+const AD_FORMAT_RE = /^(static_single_image|static_carousel|static_story|video_story|video_reel|static|video|carousel|reel|story|dynamic|collection|dsa)_/i;
+const DATE_PREFIX_RE = /^\d{4}[_\s]/; // MMDD_ or similar 4-digit date prefix
+
+function prettifyAdPart(str) {
   if (!str) return '—';
-  return str.length > n ? str.slice(0, n - 1) + '…' : str;
+  let s = str;
+  s = s.replace(AD_FORMAT_RE, '');
+  s = s.replace(DATE_PREFIX_RE, '');
+  // Split on underscores, title-case each segment, join with " - "
+  const parts = s.split('_').map(p => titleCase(p.trim().toLowerCase())).filter(Boolean);
+  return parts.join(' - ') || str;
 }
 
 const COLS = [
@@ -48,10 +113,10 @@ function AdRow({ ad, theme, colCount }) {
         <div style={{ fontSize: 12, color: theme.textSecondary }}>
           {ad.adset && (
             <span style={{ color: theme.textMuted, marginRight: 6 }} title={ad.adset}>
-              {truncate(ad.adset, 30)}
+              {prettifyAdPart(ad.adset)}
             </span>
           )}
-          <span title={ad.ad || ''}>{truncate(ad.ad, 35)}</span>
+          <span title={ad.ad || ''}>{prettifyAdPart(ad.ad)}</span>
         </div>
       </td>
       <td style={{ padding: '8px 16px', borderBottom: `1px solid ${theme.border}` }} />
@@ -72,7 +137,7 @@ function AdRow({ ad, theme, colCount }) {
   );
 }
 
-export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, loading }) {
+export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, loading, client }) {
   const [expanded, setExpanded] = useState(new Set());
   const [sortKey, setSortKey] = useState('spend');
   const [sortDir, setSortDir] = useState('desc');
@@ -199,7 +264,7 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             }}
                           >
-                            {truncate(camp.name, 45)}
+                            {prettifyCampaign(camp.name, client)}
                           </span>
                         </div>
                       </td>
