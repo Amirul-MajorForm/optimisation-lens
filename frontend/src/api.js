@@ -10,33 +10,17 @@ export async function fetchDashboard({ client, dateRange, campaignGroup }) {
 }
 
 async function callAnthropic(prompt, maxTokens = 1024) {
-  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey || apiKey === 'undefined' || apiKey === '') {
-    throw new Error('VITE_ANTHROPIC_API_KEY is not configured. Add it to your Railway environment variables.');
-  }
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('/api/ai', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-calls': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: maxTokens,
-      messages: [{ role: 'user', content: prompt }],
-    }),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt, maxTokens }),
   });
-
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    const msg = err.error?.message || `Anthropic API error (HTTP ${res.status})`;
-    throw new Error(msg);
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `AI error ${res.status}`);
   }
   const json = await res.json();
-  return json.content[0].text;
+  return json.text;
 }
 
 export async function generateAIBrief(data, clientName) {

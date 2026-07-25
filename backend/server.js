@@ -18,6 +18,41 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+app.post('/api/ai', async (req, res) => {
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) return res.status(500).json({ error: 'ANTHROPIC_API_KEY not configured on the server' });
+
+  const { prompt, maxTokens = 1024 } = req.body;
+  if (!prompt) return res.status(400).json({ error: 'prompt is required' });
+
+  try {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: maxTokens,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      return res.status(r.status).json({ error: err.error?.message || `Anthropic error ${r.status}` });
+    }
+
+    const json = await r.json();
+    res.json({ text: json.content[0].text });
+  } catch (err) {
+    console.error('[ai error]', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/dashboard', async (req, res) => {
   try {
     if (!API_KEY) {
