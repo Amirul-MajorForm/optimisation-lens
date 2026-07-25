@@ -1,8 +1,13 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
 import { fetchSheet } from './sheets.js';
 import { aggregateData, getClientConfig, getDateRange } from './aggregator.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -10,6 +15,8 @@ const API_KEY = process.env.GOOGLE_API_KEY;
 
 app.use(cors());
 app.use(express.json());
+
+app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.get('/api/dashboard', async (req, res) => {
   try {
@@ -45,6 +52,13 @@ app.get('/api/dashboard', async (req, res) => {
   }
 });
 
+// Serve built frontend in production
+const distPath = join(__dirname, '../frontend/dist');
+if (existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (_req, res) => res.sendFile(join(distPath, 'index.html')));
+}
+
 app.listen(PORT, () => {
-  console.log(`Backend running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });
