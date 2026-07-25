@@ -12,6 +12,7 @@ import DraggableLayout from './components/DraggableLayout.jsx';
 
 export const CLIENT_NAMES = {
   'ym-sg': 'Yoga Movement SG',
+  'ym-academy': 'Yoga Movement Academy',
   'ym-hk': 'Yoga Movement HK',
   'strong': 'Strong',
 };
@@ -20,7 +21,6 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [client, setClient] = useState('ym-sg');
   const [dateRange, setDateRange] = useState('7');
-  const [campaignGroup, setCampaignGroup] = useState('');
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -31,22 +31,20 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchDashboard({ client, dateRange, campaignGroup: campaignGroup || undefined });
+      const result = await fetchDashboard({ client, dateRange });
       setData(result);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [client, dateRange, campaignGroup]);
+  }, [client, dateRange]);
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => { setCampaignGroup(''); }, [client]);
-
   const meta = data?.meta;
   const google = data?.google;
-  const showGoogle = !!google && !campaignGroup;
+  const showGoogle = !!google;
 
   const totalSpend = (meta?.total?.spend || 0) + (showGoogle ? google?.total?.spend || 0 : 0);
   const totalClicks = (meta?.total?.clicks || 0) + (showGoogle ? google?.total?.clicks || 0 : 0);
@@ -143,8 +141,6 @@ export default function App() {
         onClientChange={setClient}
         dateRange={dateRange}
         onDateRangeChange={setDateRange}
-        campaignGroup={campaignGroup}
-        onCampaignGroupChange={setCampaignGroup}
       />
 
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '28px 24px 64px' }}>

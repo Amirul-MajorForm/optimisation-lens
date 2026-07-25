@@ -1,16 +1,16 @@
 export const LIGHT = {
-  bg: '#f0f2f7',
+  bg: '#f8f8f6',
   surface: '#ffffff',
-  surfaceHover: '#f8fafc',
-  surfaceAlt: '#f1f5f9',
-  border: '#e2e8f0',
-  borderStrong: '#cbd5e1',
-  textPrimary: '#0f172a',
-  textSecondary: '#475569',
-  textMuted: '#94a3b8',
-  accent: '#2563eb',
-  accentLight: '#dbeafe',
-  dragHandle: '#cbd5e1',
+  surfaceHover: '#fafafa',
+  surfaceAlt: '#f4f4f2',
+  border: '#e6e5e2',
+  borderStrong: '#d0cec9',
+  textPrimary: '#0f0f0e',
+  textSecondary: '#4d4b48',
+  textMuted: '#9a9793',
+  accent: '#1e2f4d',
+  accentLight: '#e8ecf3',
+  dragHandle: '#ccc9c4',
 };
 
 export const DARK = {

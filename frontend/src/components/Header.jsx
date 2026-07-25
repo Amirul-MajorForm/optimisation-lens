@@ -1,5 +1,6 @@
 const CLIENTS = [
   { value: 'ym-sg', label: 'Yoga Movement SG' },
+  { value: 'ym-academy', label: 'Yoga Movement Academy' },
   { value: 'ym-hk', label: 'Yoga Movement HK' },
   { value: 'strong', label: 'Strong' },
 ];
@@ -10,19 +11,12 @@ const DATE_RANGES = [
   { value: '30', label: 'Last 30 days' },
 ];
 
-const CAMPAIGN_GROUPS = [
-  { value: '', label: 'All Campaigns' },
-  { value: 'ym-singapore', label: 'YM Singapore' },
-  { value: 'ym-academy', label: 'YM Academy' },
-];
-
 const CHEVRON_SVG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`;
 
 export default function Header({
   theme, darkMode, onToggleDark,
   client, onClientChange,
   dateRange, onDateRangeChange,
-  campaignGroup, onCampaignGroupChange,
 }) {
   const sel = {
     background: theme.surface,
@@ -88,13 +82,6 @@ export default function Header({
         <select value={client} onChange={e => onClientChange(e.target.value)} style={sel}>
           {CLIENTS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
-
-        {/* Campaign group (YM SG only) */}
-        {client === 'ym-sg' && (
-          <select value={campaignGroup} onChange={e => onCampaignGroupChange(e.target.value)} style={sel}>
-            {CAMPAIGN_GROUPS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
-          </select>
-        )}
 
         {/* Date range */}
         <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={sel}>

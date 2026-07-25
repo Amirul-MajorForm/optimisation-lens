@@ -24,7 +24,7 @@ app.get('/api/dashboard', async (req, res) => {
       return res.status(500).json({ error: 'GOOGLE_API_KEY not configured' });
     }
 
-    const { client = 'ym-sg', dateRange: drParam = '7', campaignGroup } = req.query;
+    const { client = 'ym-sg', dateRange: drParam = '7' } = req.query;
     const days = Math.min(Math.max(parseInt(drParam) || 7, 1), 90);
 
     const config = getClientConfig(client);
@@ -41,7 +41,7 @@ app.get('/api/dashboard', async (req, res) => {
     const result = aggregateData(
       metaRows, searchRows, convRows,
       client,
-      campaignGroup || null,
+      null,
       dateRange,
     );
 

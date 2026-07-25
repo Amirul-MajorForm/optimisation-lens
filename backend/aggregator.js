@@ -14,29 +14,37 @@ const STRONG_META = {
 const SEARCH_IS = { date: 2, campaign: 3, spend: 5, impressions: 6, clicks: 7, conversions: 8, ctr: 11 };
 const CONVERSIONS = { date: 2, campaign: 3, conversions: 7 };
 
+const ACADEMY_RE = /ACADEMY|YMTT|TEACHER\s*TRAINING/i;
+
 const CLIENT_CONFIG = {
   'ym-sg': {
     metaSheet: 'YM - Meta',
     metaCols: YM_META,
-    metaFilter: (n) => n.startsWith('SG_'),
+    metaFilter: (n) => n.startsWith('SG_') && !ACADEMY_RE.test(n),
     searchSheet: 'YM - GoogleAds Search IS',
     conversionsSheet: 'YM - Google Conversions',
     googleFilter: (n) => ['SG_', 'Free Class', 'Starter Classes', 'Website traffic'].some(p => n.startsWith(p)),
-    hasCampaignGroups: true,
+  },
+  'ym-academy': {
+    metaSheet: 'YM - Meta',
+    metaCols: YM_META,
+    metaFilter: (n) => ACADEMY_RE.test(n),
+    searchSheet: null,
+    conversionsSheet: null,
+    googleFilter: null,
   },
   'ym-hk': {
     metaSheet: 'YM - Meta',
     metaCols: YM_META,
-    metaFilter: (n) => ['HK_', 'IYD_', 'FreeClass_', 'Mats and Matcha'].some(p => n.startsWith(p)),
+    metaFilter: (n) => n.startsWith('HK_'),
     searchSheet: 'YM - GoogleAds Search IS',
     conversionsSheet: 'YM - Google Conversions',
-    googleFilter: (n) => ['HK_', '2025 - Always On - Hong Kong'].some(p => n.startsWith(p)),
-    hasCampaignGroups: false,
+    googleFilter: (n) => n.startsWith('HK_') || n.startsWith('2025 - Always On - Hong Kong'),
   },
   'strong': {
     metaSheet: 'Strong - Meta',
     metaCols: STRONG_META,
-    metaFilter: () => true,
+    metaFilter: (n) => /strong/i.test(n),
     searchSheet: null,
     conversionsSheet: null,
     googleFilter: null,
@@ -44,12 +52,6 @@ const CLIENT_CONFIG = {
   },
 };
 
-const CAMPAIGN_GROUPS = {
-  'ym-singapore': (name) =>
-    name.startsWith('SG_') && !/(ACADEMY|YMTT|TEACHER\s*TRAINING)/i.test(name),
-  'ym-academy': (name) =>
-    /(ACADEMY|YMTT|TEACHER\s*TRAINING)/i.test(name),
-};
 
 function serialToDateStr(serial) {
   return new Date((serial - 25569) * 86400 * 1000).toISOString().slice(0, 10);
@@ -243,18 +245,11 @@ function byDateGoogle(rows) {
   return map;
 }
 
-export function aggregateData(metaRows, searchRows, convRows, clientId, campaignGroup, dateRange) {
+export function aggregateData(metaRows, searchRows, convRows, clientId, _campaignGroup, dateRange) {
   const config = CLIENT_CONFIG[clientId];
   if (!config) throw new Error(`Unknown client: ${clientId}`);
 
-  let metaFilter = config.metaFilter;
-  if (campaignGroup && CAMPAIGN_GROUPS[campaignGroup]) {
-    const groupFn = CAMPAIGN_GROUPS[campaignGroup];
-    const baseFn = metaFilter;
-    metaFilter = (name) => baseFn(name) && groupFn(name);
-  }
-
-  const parsedMeta = parseMeta(metaRows, config.metaCols, metaFilter, dateRange);
+  const parsedMeta = parseMeta(metaRows, config.metaCols, config.metaFilter, dateRange);
   const metaRaw = sumMeta(parsedMeta);
 
   const result = {
@@ -271,8 +266,7 @@ export function aggregateData(metaRows, searchRows, convRows, clientId, campaign
     google: null,
   };
 
-  // Include Google only when no campaign group filter is active
-  if (!campaignGroup && config.searchSheet && config.googleFilter) {
+  if (config.searchSheet && config.googleFilter) {
     const parsedGoogle = parseGoogle(searchRows, convRows, config.googleFilter, dateRange);
     const googleRaw = sumGoogle(parsedGoogle);
     result.google = {
