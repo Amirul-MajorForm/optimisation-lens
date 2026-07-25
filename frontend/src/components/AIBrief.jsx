@@ -94,7 +94,7 @@ export default function AIBrief({ theme, data, clientName, loading: dataLoading 
               Generating…
             </>
           ) : (
-            <>✨ Generate Brief</>
+            <>✨ Generate Insights</>
           )}
         </button>
       </div>
@@ -119,7 +119,7 @@ export default function AIBrief({ theme, data, clientName, loading: dataLoading 
           textAlign: 'center', padding: '32px 0',
           color: theme.textMuted, fontSize: 14,
         }}>
-          Click "Generate Brief" to get AI-powered insights for {clientName}
+          Click "Generate Insights" to get AI-powered insights for {clientName}
         </div>
       )}
 

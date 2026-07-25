@@ -11,7 +11,9 @@ export async function fetchDashboard({ client, dateRange, campaignGroup }) {
 
 async function callAnthropic(prompt, maxTokens = 1024) {
   const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error('VITE_ANTHROPIC_API_KEY is not set');
+  if (!apiKey || apiKey === 'undefined' || apiKey === '') {
+    throw new Error('VITE_ANTHROPIC_API_KEY is not configured. Add it to your Railway environment variables.');
+  }
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -30,7 +32,8 @@ async function callAnthropic(prompt, maxTokens = 1024) {
 
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `Anthropic error ${res.status}`);
+    const msg = err.error?.message || `Anthropic API error (HTTP ${res.status})`;
+    throw new Error(msg);
   }
   const json = await res.json();
   return json.content[0].text;
