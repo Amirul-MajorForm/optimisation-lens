@@ -1,0 +1,104 @@
+export async function fetchDashboard({ client, dateRange, campaignGroup }) {
+  const params = new URLSearchParams({ client, dateRange: String(dateRange) });
+  if (campaignGroup) params.set('campaignGroup', campaignGroup);
+  const res = await fetch(`/api/dashboard?${params}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function callAnthropic(prompt, maxTokens = 1024) {
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error('VITE_ANTHROPIC_API_KEY is not set');
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-calls': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: maxTokens,
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Anthropic error ${res.status}`);
+  }
+  const json = await res.json();
+  return json.content[0].text;
+}
+
+export async function generateAIBrief(data, clientName) {
+  const m = data?.meta?.total || {};
+  const g = data?.google?.total || null;
+
+  const topCampaigns = (data?.meta?.campaigns || [])
+    .slice(0, 5)
+    .map(c => `  • ${c.name}: $${c.spend.toFixed(2)} spend, ${c.leads} leads, ${c.ctr.toFixed(2)}% CTR`)
+    .join('\n');
+
+  const prompt = `You are a performance marketing analyst. Provide a concise brief for ${clientName}.
+
+META: Spend $${m.spend?.toFixed(2) ?? 0}, Impressions ${(m.impressions ?? 0).toLocaleString()}, Clicks ${m.clicks ?? 0}, CTR ${m.ctr?.toFixed(2) ?? 0}%, Leads ${m.leads ?? 0}, CPL $${m.cpl?.toFixed(2) ?? 0}, CPM $${m.cpm?.toFixed(2) ?? 0}
+${g ? `GOOGLE: Spend $${g.spend?.toFixed(2)}, Impressions ${g.impressions?.toLocaleString()}, Clicks ${g.clicks}, CTR ${g.ctr?.toFixed(2)}%, Conversions ${g.conversions}, CPL $${g.cpl?.toFixed(2)}` : ''}
+
+Top campaigns by spend:
+${topCampaigns || '  No campaign data'}
+
+Respond with EXACTLY this format (keep each section to 2-3 bullets):
+
+**Act Today**
+• [urgent action 1]
+• [urgent action 2]
+
+**Watch**
+• [metric or trend to monitor 1]
+• [metric or trend to monitor 2]
+
+**Healthy**
+• [what's performing well 1]
+• [what's performing well 2]
+
+Be specific and reference actual numbers.`;
+
+  return callAnthropic(prompt, 800);
+}
+
+export async function generateSummary(data, clientName, sections, tone) {
+  const m = data?.meta?.total || {};
+  const g = data?.google?.total || null;
+
+  const toneDesc = {
+    executive: 'Concise executive style. Focus on ROI, business impact, key decisions. Use bullet points.',
+    technical: 'Detailed technical analyst style. Include specific metrics, statistical observations, benchmark comparisons.',
+    'client-friendly': 'Friendly, jargon-free style. Celebrate wins, explain clearly, suggest clear next steps.',
+  }[tone] || 'professional and clear';
+
+  const campLines = (data?.meta?.campaigns || [])
+    .slice(0, 8)
+    .map(c => `  • ${c.name}: $${c.spend.toFixed(2)} spend | ${c.leads} leads | ${c.ctr.toFixed(2)}% CTR | $${c.cpl.toFixed(2)} CPL`)
+    .join('\n');
+
+  const prompt = `You are a performance marketing analyst writing a ${tone} report for ${clientName}.
+Tone: ${toneDesc}
+
+DATA SUMMARY:
+Meta — Spend: $${m.spend?.toFixed(2) ?? 0}, Impressions: ${(m.impressions ?? 0).toLocaleString()}, Clicks: ${m.clicks ?? 0}, CTR: ${m.ctr?.toFixed(2) ?? 0}%, Leads: ${m.leads ?? 0}, CPL: $${m.cpl?.toFixed(2) ?? 0}, CPM: $${m.cpm?.toFixed(2) ?? 0}
+${g ? `Google — Spend: $${g.spend?.toFixed(2)}, Impressions: ${g.impressions?.toLocaleString()}, Clicks: ${g.clicks}, CTR: ${g.ctr?.toFixed(2)}%, Conversions: ${g.conversions}, CPL: $${g.cpl?.toFixed(2)}` : 'Google: No data'}
+
+Campaign breakdown:
+${campLines || '  No campaign data'}
+
+Write a report covering these sections: ${sections.join(', ')}.
+Use ## for section headers. Keep each section focused and actionable. Use markdown formatting.`;
+
+  return callAnthropic(prompt, 2000);
+}
