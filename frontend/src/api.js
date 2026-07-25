@@ -26,7 +26,22 @@ async function callAnthropic(prompt, maxTokens = 1024) {
   return json.text;
 }
 
-export async function generateAIBrief(data, clientName) {
+export async function fetchStyleRef(client) {
+  const res = await fetch(`/api/style-ref?client=${encodeURIComponent(client)}`);
+  if (!res.ok) return '';
+  const json = await res.json();
+  return json.text || '';
+}
+
+export async function saveStyleRef(client, text) {
+  await fetch('/api/style-ref', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client, text }),
+  });
+}
+
+export async function generateAIBrief(data, clientName, styleRef = '') {
   const m = data?.meta?.total || {};
   const g = data?.google?.total || null;
 
@@ -35,8 +50,13 @@ export async function generateAIBrief(data, clientName) {
     .map(c => `  • ${c.name}: $${c.spend.toFixed(2)} spend, ${c.leads} leads, ${c.ctr.toFixed(2)}% CTR`)
     .join('\n');
 
-  const prompt = `You are a performance marketing analyst. Provide a concise brief for ${clientName}.
+  const styleSection = styleRef?.trim()
+    ? `\nHere is an example of our previous reporting style. Match this tone, language, and level of detail exactly — do not copy the numbers, only the style:\n\n${styleRef.trim()}\n`
+    : '';
 
+  const prompt = `You are a performance marketing analyst. Provide a concise brief for ${clientName}.
+${styleSection}
+DATA:
 META: Spend $${m.spend?.toFixed(2) ?? 0}, Impressions ${(m.impressions ?? 0).toLocaleString()}, Clicks ${m.clicks ?? 0}, CTR ${m.ctr?.toFixed(2) ?? 0}%, Leads ${m.leads ?? 0}, CPL $${m.cpl?.toFixed(2) ?? 0}, CPM $${m.cpm?.toFixed(2) ?? 0}
 ${g ? `GOOGLE: Spend $${g.spend?.toFixed(2)}, Impressions ${g.impressions?.toLocaleString()}, Clicks ${g.clicks}, CTR ${g.ctr?.toFixed(2)}%, Conversions ${g.conversions}, CPL $${g.cpl?.toFixed(2)}` : ''}
 
@@ -59,7 +79,7 @@ Respond with EXACTLY this format (keep each section to 2-3 bullets):
 
 Be specific and reference actual numbers.`;
 
-  return callAnthropic(prompt, 800);
+  return callAnthropic(prompt, 900);
 }
 
 export async function generateSummary(data, clientName, sections, tone) {

@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { generateAIBrief } from '../api.js';
+import { useState, useEffect, useRef } from 'react';
+import { generateAIBrief, fetchStyleRef, saveStyleRef } from '../api.js';
 
 const SECTION_CONFIG = {
   'Act Today': { color: '#ef4444', bg: '#fef2f2', darkBg: '#2d1515', icon: '🚨' },
@@ -33,8 +33,32 @@ export default function AIBrief({ theme, data, clientName, loading: dataLoading 
   const [brief, setBrief] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
+  const [styleRef, setStyleRef] = useState('');
+  const [styleOpen, setStyleOpen] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('');
+  const saveTimer = useRef(null);
+  const clientRef = useRef(clientName);
 
   const isDark = theme.bg.startsWith('#0') || theme.bg.startsWith('#08');
+
+  // Load style ref whenever client changes
+  useEffect(() => {
+    clientRef.current = clientName;
+    fetchStyleRef(clientName).then(text => {
+      if (clientRef.current === clientName) setStyleRef(text);
+    });
+    setBrief(null);
+    setError(null);
+  }, [clientName]);
+
+  const handleStyleBlur = () => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      await saveStyleRef(clientName, styleRef);
+      setSaveStatus('Saved');
+      setTimeout(() => setSaveStatus(''), 2000);
+    }, 300);
+  };
 
   const handleGenerate = async () => {
     if (!data) return;
@@ -42,7 +66,7 @@ export default function AIBrief({ theme, data, clientName, loading: dataLoading 
     setError(null);
     setBrief(null);
     try {
-      const text = await generateAIBrief(data, clientName);
+      const text = await generateAIBrief(data, clientName, styleRef);
       setBrief(parseBrief(text));
     } catch (e) {
       setError(e.message);
@@ -59,7 +83,12 @@ export default function AIBrief({ theme, data, clientName, loading: dataLoading 
       padding: '20px 24px',
       transition: 'background 0.25s',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+      <style>{`
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+      `}</style>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
         <div>
           <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 15, color: theme.textPrimary }}>
             AI Brief
@@ -99,10 +128,50 @@ export default function AIBrief({ theme, data, clientName, loading: dataLoading 
         </button>
       </div>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
+      {/* Style reference section */}
+      <div style={{ marginBottom: 16 }}>
+        <button
+          onClick={() => setStyleOpen(o => !o)}
+          style={{
+            background: 'none', border: 'none', padding: 0,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5,
+            fontSize: 12, color: theme.textMuted,
+            fontFamily: "'DM Sans', sans-serif",
+          }}
+        >
+          <span style={{ fontSize: 10, transition: 'transform 0.15s', transform: styleOpen ? 'rotate(90deg)' : 'none' }}>▶</span>
+          Style reference {styleRef ? '(set)' : '(none)'}
+          {saveStatus && <span style={{ color: '#22c55e', marginLeft: 4 }}>{saveStatus}</span>}
+        </button>
+        {styleOpen && (
+          <div style={{ marginTop: 8, animation: 'fadeIn 0.2s ease' }}>
+            <textarea
+              value={styleRef}
+              onChange={e => setStyleRef(e.target.value)}
+              onBlur={handleStyleBlur}
+              placeholder={`Paste a previous insights report for ${clientName} here. The AI will mirror its tone and style when generating new insights.`}
+              rows={6}
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                background: theme.surfaceAlt,
+                border: `1px solid ${theme.border}`,
+                borderRadius: 8,
+                padding: '10px 12px',
+                fontSize: 12,
+                color: theme.textSecondary,
+                fontFamily: "'DM Sans', sans-serif",
+                resize: 'vertical',
+                outline: 'none',
+                lineHeight: 1.5,
+              }}
+            />
+            <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 4 }}>
+              Auto-saved per client when you click away.
+            </div>
+          </div>
+        )}
+      </div>
 
       {error && (
         <div style={{
@@ -115,10 +184,7 @@ export default function AIBrief({ theme, data, clientName, loading: dataLoading 
       )}
 
       {!brief && !generating && !error && (
-        <div style={{
-          textAlign: 'center', padding: '32px 0',
-          color: theme.textMuted, fontSize: 14,
-        }}>
+        <div style={{ textAlign: 'center', padding: '32px 0', color: theme.textMuted, fontSize: 14 }}>
           Click "Generate Insights" to get AI-powered insights for {clientName}
         </div>
       )}

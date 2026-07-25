@@ -1,6 +1,11 @@
 import { useState, Fragment } from 'react';
 import { CHART, fmt } from '../theme.js';
 
+function truncate(str, n) {
+  if (!str) return '—';
+  return str.length > n ? str.slice(0, n - 1) + '…' : str;
+}
+
 const COLS = [
   { key: 'name',        label: 'Campaign / Ad',  sortKey: 'name',        align: 'left' },
   { key: 'platform',    label: 'Platform',        sortKey: 'platform',    align: 'left' },
@@ -41,8 +46,12 @@ function AdRow({ ad, theme, colCount }) {
     <tr style={{ background: theme.surfaceAlt }}>
       <td style={{ padding: '8px 16px 8px 40px', borderBottom: `1px solid ${theme.border}` }}>
         <div style={{ fontSize: 12, color: theme.textSecondary }}>
-          {ad.adset && <span style={{ color: theme.textMuted, marginRight: 6 }}>{ad.adset}</span>}
-          {ad.ad || '—'}
+          {ad.adset && (
+            <span style={{ color: theme.textMuted, marginRight: 6 }} title={ad.adset}>
+              {truncate(ad.adset, 30)}
+            </span>
+          )}
+          <span title={ad.ad || ''}>{truncate(ad.ad, 35)}</span>
         </div>
       </td>
       <td style={{ padding: '8px 16px', borderBottom: `1px solid ${theme.border}` }} />
@@ -183,11 +192,14 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
                           ) : (
                             <span style={{ width: 14, flexShrink: 0 }} />
                           )}
-                          <span style={{
-                            fontSize: 13, color: theme.textPrimary, fontWeight: 500,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>
-                            {camp.name}
+                          <span
+                            title={camp.name}
+                            style={{
+                              fontSize: 13, color: theme.textPrimary, fontWeight: 500,
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {truncate(camp.name, 45)}
                           </span>
                         </div>
                       </td>
