@@ -9,6 +9,9 @@ const DATE_RANGES = [
   { value: '7', label: 'Last 7 days' },
   { value: '14', label: 'Last 14 days' },
   { value: '30', label: 'Last 30 days' },
+  { value: '60', label: 'Last 60 days' },
+  { value: '90', label: 'Last 90 days' },
+  { value: 'custom', label: 'Custom range…' },
 ];
 
 const CHEVRON_SVG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2394a3b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`;
@@ -17,6 +20,7 @@ export default function Header({
   theme, darkMode, onToggleDark,
   client, onClientChange,
   dateRange, onDateRangeChange,
+  customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
 }) {
   const sel = {
     background: theme.surface,
@@ -87,6 +91,59 @@ export default function Header({
         <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={sel}>
           {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
         </select>
+
+        {/* Custom date inputs */}
+        {dateRange === 'custom' && (
+          <>
+            <input
+              type="date"
+              value={customStart}
+              onChange={e => onCustomStartChange(e.target.value)}
+              max={customEnd || undefined}
+              style={{
+                ...sel,
+                minWidth: 130,
+                padding: '7px 10px',
+                backgroundImage: 'none',
+                colorScheme: darkMode ? 'dark' : 'light',
+              }}
+            />
+            <span style={{ color: theme.textMuted, fontSize: 13, flexShrink: 0 }}>→</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={e => onCustomEndChange(e.target.value)}
+              min={customStart || undefined}
+              style={{
+                ...sel,
+                minWidth: 130,
+                padding: '7px 10px',
+                backgroundImage: 'none',
+                colorScheme: darkMode ? 'dark' : 'light',
+              }}
+            />
+            <button
+              onClick={onApplyCustom}
+              disabled={!customStart || !customEnd || customStart > customEnd}
+              style={{
+                background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                padding: '7px 14px',
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: "'DM Sans', sans-serif",
+                cursor: !customStart || !customEnd || customStart > customEnd ? 'not-allowed' : 'pointer',
+                opacity: !customStart || !customEnd || customStart > customEnd ? 0.5 : 1,
+                flexShrink: 0,
+                transition: 'opacity 0.15s',
+              }}
+            >
+              Apply
+            </button>
+          </>
+        )}
 
         {/* Dark mode toggle */}
         <button

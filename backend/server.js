@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import { fetchSheet } from './sheets.js';
-import { aggregateData, getClientConfig, getDateRange } from './aggregator.js';
+import { aggregateData, getClientConfig, getDateRange, getDateRangeFromStrings } from './aggregator.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -59,13 +59,18 @@ app.get('/api/dashboard', async (req, res) => {
       return res.status(500).json({ error: 'GOOGLE_API_KEY not configured' });
     }
 
-    const { client = 'ym-sg', dateRange: drParam = '7' } = req.query;
-    const days = Math.min(Math.max(parseInt(drParam) || 7, 1), 90);
+    const { client = 'ym-sg', dateRange: drParam = '7', startDate, endDate } = req.query;
 
     const config = getClientConfig(client);
     if (!config) return res.status(400).json({ error: `Unknown client: ${client}` });
 
-    const dateRange = getDateRange(days);
+    let dateRange;
+    if (drParam === 'custom' && startDate && endDate) {
+      dateRange = getDateRangeFromStrings(startDate, endDate);
+    } else {
+      const days = Math.min(Math.max(parseInt(drParam) || 7, 1), 365);
+      dateRange = getDateRange(days);
+    }
 
     const [metaRows, searchRows, convRows] = await Promise.all([
       fetchSheet(API_KEY, config.metaSheet),

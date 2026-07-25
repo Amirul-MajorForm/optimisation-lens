@@ -20,25 +20,41 @@ export const CLIENT_NAMES = {
 export default function App() {
   const [darkMode, setDarkMode] = useState(true);
   const [client, setClient] = useState('ym-sg');
+  // UI state for the date controls
   const [dateRange, setDateRange] = useState('7');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  // Committed params that actually drive the fetch — custom only updates on Apply
+  const [fetchParams, setFetchParams] = useState({ dateRange: '7', startDate: '', endDate: '' });
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   const theme = darkMode ? DARK : LIGHT;
 
+  const handleDateRangeChange = (val) => {
+    setDateRange(val);
+    if (val !== 'custom') setFetchParams({ dateRange: val, startDate: '', endDate: '' });
+  };
+
+  const handleApplyCustom = () => {
+    if (customStart && customEnd && customStart <= customEnd) {
+      setFetchParams({ dateRange: 'custom', startDate: customStart, endDate: customEnd });
+    }
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchDashboard({ client, dateRange });
+      const result = await fetchDashboard({ client, ...fetchParams });
       setData(result);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [client, dateRange]);
+  }, [client, fetchParams]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -80,7 +96,9 @@ export default function App() {
           metaByDate={meta?.byDate}
           googleByDate={google?.byDate}
           showGoogle={showGoogle}
-          dateRange={parseInt(dateRange)}
+          dateRange={fetchParams.dateRange === 'custom' ? 0 : parseInt(fetchParams.dateRange)}
+          startDate={fetchParams.startDate}
+          endDate={fetchParams.endDate}
           loading={loading}
         />
       ),
@@ -140,7 +158,12 @@ export default function App() {
         client={client}
         onClientChange={setClient}
         dateRange={dateRange}
-        onDateRangeChange={setDateRange}
+        onDateRangeChange={handleDateRangeChange}
+        customStart={customStart}
+        customEnd={customEnd}
+        onCustomStartChange={setCustomStart}
+        onCustomEndChange={setCustomEnd}
+        onApplyCustom={handleApplyCustom}
       />
 
       <div style={{ maxWidth: 1400, margin: '0 auto', padding: '28px 24px 64px' }}>

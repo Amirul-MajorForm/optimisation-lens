@@ -66,9 +66,18 @@ function n(v) {
   return isNaN(num) ? 0 : num;
 }
 
+function dateStrToSerial(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return Math.floor(Date.UTC(y, m - 1, d) / 86400000) + 25569;
+}
+
 export function getDateRange(days) {
   const todaySerial = Math.floor(Date.now() / 86400000) + 25569;
   return { start: todaySerial - days + 1, end: todaySerial };
+}
+
+export function getDateRangeFromStrings(startDate, endDate) {
+  return { start: dateStrToSerial(startDate), end: dateStrToSerial(endDate) };
 }
 
 export function getClientConfig(clientId) {

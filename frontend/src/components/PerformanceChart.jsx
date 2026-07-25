@@ -5,7 +5,15 @@ import {
 } from 'recharts';
 import { CHART, METRIC_META, fmt } from '../theme.js';
 
-function buildDateArray(days) {
+function buildDateArray(days, startDate, endDate) {
+  if (startDate && endDate) {
+    const arr = [];
+    const end = new Date(endDate + 'T00:00:00');
+    for (let d = new Date(startDate + 'T00:00:00'); d <= end; d.setDate(d.getDate() + 1)) {
+      arr.push(d.toISOString().slice(0, 10));
+    }
+    return arr;
+  }
   const arr = [];
   const now = new Date();
   now.setHours(0, 0, 0, 0);
@@ -111,7 +119,7 @@ const TabButton = ({ active, onClick, children, theme }) => (
   </button>
 );
 
-export default function PerformanceChart({ theme, metaByDate, googleByDate, showGoogle, dateRange, loading }) {
+export default function PerformanceChart({ theme, metaByDate, googleByDate, showGoogle, dateRange, startDate, endDate, loading }) {
   const [metrics, setMetrics] = useState(new Set(['spend']));
   const [platform, setPlatform] = useState('both');
   const [granularity, setGranularity] = useState('daily');
@@ -134,7 +142,7 @@ export default function PerformanceChart({ theme, metaByDate, googleByDate, show
   const showGoogleLine = showGoogle && (effectivePlatform === 'google' || effectivePlatform === 'both');
 
   const rawChartData = useMemo(() => {
-    const dates = buildDateArray(dateRange || 7);
+    const dates = buildDateArray(dateRange || 7, startDate, endDate);
     let daily = dates.map(date => ({
       date,
       metaSpend: metaByDate?.[date]?.spend ?? 0,
@@ -149,7 +157,7 @@ export default function PerformanceChart({ theme, metaByDate, googleByDate, show
     if (granularity === 'weekly') daily = groupWeekly(daily);
     if (granularity === 'monthly') daily = groupMonthly(daily);
     return daily;
-  }, [metaByDate, googleByDate, dateRange, granularity]);
+  }, [metaByDate, googleByDate, dateRange, startDate, endDate, granularity]);
 
   // Line definitions: color by metric in multi mode, by platform in single mode
   const lineDefs = useMemo(() => {
