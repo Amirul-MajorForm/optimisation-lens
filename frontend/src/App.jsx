@@ -9,6 +9,8 @@ import AIBrief from './components/AIBrief.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
 import ClientSummary from './components/ClientSummary.jsx';
 import DraggableLayout from './components/DraggableLayout.jsx';
+import Sidebar from './components/Sidebar.jsx';
+import SearchAnalysis from './components/SearchAnalysis.jsx';
 
 export const CLIENT_NAMES = {
   'ym-sg': 'Yoga Movement SG',
@@ -29,6 +31,7 @@ export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('overview');
 
   const theme = darkMode ? DARK : LIGHT;
 
@@ -167,19 +170,30 @@ export default function App() {
         onApplyCustom={handleApplyCustom}
       />
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', padding: '28px 24px 64px' }}>
-        {error && (
-          <div style={{
-            background: darkMode ? '#3b0a0a' : '#fee2e2',
-            color: darkMode ? '#fca5a5' : '#991b1b',
-            border: `1px solid ${darkMode ? '#7f1d1d' : '#fecaca'}`,
-            padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 14,
-          }}>
-            Failed to load data: {error}. Check your API key and network connection.
-          </div>
-        )}
+      <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'flex-start' }}>
+        <Sidebar theme={theme} activeTab={activeTab} onTabChange={setActiveTab} />
 
-        <DraggableLayout theme={theme} sections={sections} />
+        <main style={{ flex: 1, padding: '28px 24px 64px', minWidth: 0 }}>
+          {activeTab === 'overview' && (
+            <>
+              {error && (
+                <div style={{
+                  background: darkMode ? '#3b0a0a' : '#fee2e2',
+                  color: darkMode ? '#fca5a5' : '#991b1b',
+                  border: `1px solid ${darkMode ? '#7f1d1d' : '#fecaca'}`,
+                  padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 14,
+                }}>
+                  Failed to load data: {error}. Check your API key and network connection.
+                </div>
+              )}
+              <DraggableLayout theme={theme} sections={sections} />
+            </>
+          )}
+
+          {activeTab === 'search' && (
+            <SearchAnalysis theme={theme} client={client} fetchParams={fetchParams} />
+          )}
+        </main>
       </div>
     </div>
   );

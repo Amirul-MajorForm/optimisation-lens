@@ -10,52 +10,26 @@ function titleCase(str) {
   );
 }
 
-// Ordered: check longer/more-specific patterns first
-const OBJECTIVES = [
-  [/TEACHER[\s_]TRAINING|YMTT/i, 'Teacher Training'],
-  [/STARTER[\s_]CLASS/i, 'Starter Classes'],
-  [/FREE[\s_]CLASS/i, 'Free Class'],
-  [/ALWAYS[\s_]ON/i, 'Always On'],
-  [/\bRETARGET/i, 'Retargeting'],
-  [/\bAWARENESS\b/i, 'Awareness'],
-  [/\bCONVERSION/i, 'Conversions'],
-  [/\bTRAFFIC\b/i, 'Traffic'],
-  [/\bENGAGE/i, 'Engagement'],
-  [/\bREACH\b/i, 'Reach'],
-  [/\bBRAND\b/i, 'Brand'],
-  [/\bLEADS?\b/i, 'Leads'],
-];
 
-function prettifyCampaign(name, client) {
-  // Market from prefix
-  let market = '';
-  if (/^HK[_\s]/i.test(name)) market = 'HK';
-  else if (/^SG[_\s]/i.test(name)) market = 'SG';
-  else if (/^MY[_\s]/i.test(name)) market = 'MY';
-
-  // Brand from client id
-  let brand = '';
-  if (client && client.startsWith('ym')) brand = 'YM';
-  else if (client === 'strong' || /strong/i.test(name)) brand = 'Strong';
-
-  // Objective
-  let objective = '';
-  for (const [re, label] of OBJECTIVES) {
-    if (re.test(name)) { objective = label; break; }
-  }
-
-  const parts = [brand, market, objective].filter(Boolean);
-  // Only use parsed form if we extracted at least 2 meaningful parts
-  if (parts.length >= 2) return parts.join(' ');
-
-  // Fallback: strip known junk tokens, underscores → spaces, title case
-  const cleaned = name
-    .replace(/^(SG|HK|MY|YM|YMTT|META|GOOGLE|FB|IG)[_\s]/gi, '')
-    .replace(/\b(ABO|CBO|CPL|CPM|META|GOOGLE|2024|2025|2026)\b/gi, '')
-    .replace(/[_]+/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-  return titleCase(cleaned.toLowerCase()) || name;
+function prettifyCampaign(name) {
+  let s = name;
+  // Strip leading market/platform prefix tokens (iterative to handle chained e.g. SG_META_YM_)
+  let prev;
+  do {
+    prev = s;
+    s = s.replace(/^(SG|HK|MY|AU|YM|META|GOOGLE|FB|IG|YMTT)[_\s]+/i, '');
+  } while (s !== prev);
+  // Strip brand name
+  s = s.replace(/YOGA[\s_]+MOVEMENT[_\s]*/gi, ' ');
+  // Strip year tokens and buy-type abbreviations (whole words only)
+  s = s.replace(/\b(20[0-9]{2}|ABO|CBO)\b[_\s]*/gi, ' ');
+  // Replace remaining underscores with spaces
+  s = s.replace(/_+/g, ' ');
+  // Strip leading/trailing punctuation/dashes
+  s = s.replace(/^[\s\-–]+/, '').replace(/[\s\-–]+$/, '');
+  // Collapse whitespace
+  s = s.replace(/\s{2,}/g, ' ').trim();
+  return titleCase(s.toLowerCase()) || name;
 }
 
 const AD_FORMAT_RE = /^(static_single_image|static_carousel|static_story|video_story|video_reel|static|video|carousel|reel|story|dynamic|collection|dsa)_/i;
@@ -264,7 +238,7 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
                               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                             }}
                           >
-                            {prettifyCampaign(camp.name, client)}
+                            {prettifyCampaign(camp.name)}
                           </span>
                         </div>
                       </td>

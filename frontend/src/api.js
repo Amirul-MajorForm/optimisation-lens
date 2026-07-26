@@ -82,6 +82,20 @@ Be specific and reference actual numbers.`;
   return callAnthropic(prompt, 900);
 }
 
+export async function fetchSearchDeepdive({ client, dateRange, startDate, endDate }) {
+  const params = new URLSearchParams({ client, dateRange: String(dateRange) });
+  if (dateRange === 'custom' && startDate && endDate) {
+    params.set('startDate', startDate);
+    params.set('endDate', endDate);
+  }
+  const res = await fetch(`/api/search-deepdive?${params}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function generateSummary(data, clientName, sections, tone) {
   const m = data?.meta?.total || {};
   const g = data?.google?.total || null;
