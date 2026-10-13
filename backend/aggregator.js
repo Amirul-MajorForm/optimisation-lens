@@ -113,7 +113,13 @@ function parseMeta(rows, cols, campaignFilter, dateRange, convCols = []) {
     agg.impressions += n(row[cols.impressions]);
     agg.leads += n(row[cols.leads]);
     agg.lpv += n(row[cols.lpv]);
-    for (const c of convCols) agg[c.key] += n(row[c.colIndex]);
+    for (const c of convCols) {
+      const raw = row[c.colIndex];
+      if (campaign.includes('CPCONV') && raw !== undefined && raw !== 0 && raw !== '') {
+        console.log(`[parseMeta] ${campaign} | conv "${c.name}" [col ${c.colIndex}] raw=${JSON.stringify(raw)} → ${n(raw)}`);
+      }
+      agg[c.key] += n(raw);
+    }
   }
   return Array.from(map.values());
 }
@@ -147,7 +153,14 @@ function parseGoogleConvActions(convRows) {
 // Returns array of { name, key, colIndex } for named conversion columns in the Meta sheet header
 function parseMetaConversionColumns(metaRows, fixedCols) {
   if (!metaRows || metaRows.length < 1) return [];
-  const header = metaRows[0];
+  // Find the header row: first row whose date-column value is not a valid serial
+  // (handles sheets that start with a title row before the actual column headers)
+  let headerIdx = 0;
+  for (let r = 0; r < Math.min(5, metaRows.length); r++) {
+    if (!isValidSerial(metaRows[r][fixedCols.date])) { headerIdx = r; break; }
+  }
+  const header = metaRows[headerIdx];
+  console.log('[aggregator] meta header row idx:', headerIdx, '| cols:', header.length);
   const fixedSet = new Set(Object.values(fixedCols));
   const result = [];
   for (let i = 0; i < header.length; i++) {
@@ -155,6 +168,7 @@ function parseMetaConversionColumns(metaRows, fixedCols) {
     const name = String(header[i] ?? '').trim();
     if (name && isConversionColName(name)) result.push({ name, key: convKey(name), colIndex: i });
   }
+  console.log('[aggregator] meta conv cols detected:', result.map(c => `[${c.colIndex}] ${c.name}`));
   return result;
 }
 

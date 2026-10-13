@@ -107,6 +107,11 @@ app.get('/api/dashboard', async (req, res) => {
       config.conversionsSheet ? fetchSheet(API_KEY, config.conversionsSheet) : Promise.resolve([]),
     ]);
 
+    // Debug: log first row (header) of meta sheet and detected conv columns
+    if (metaRows.length > 0) {
+      console.log('[debug] meta header row:', JSON.stringify(metaRows[0]));
+    }
+
     const result = aggregateData(
       metaRows, searchRows, convRows,
       client,
@@ -114,6 +119,8 @@ app.get('/api/dashboard', async (req, res) => {
       dateRange,
     );
 
+    console.log('[debug] metaConversions:', JSON.stringify(result.metaConversions));
+    console.log('[debug] googleConversions:', JSON.stringify(result.googleConversions));
     res.json(result);
   } catch (err) {
     console.error('[dashboard error]', err);
