@@ -73,7 +73,8 @@ function dateStrToSerial(dateStr) {
 
 export function getDateRange(days) {
   const todaySerial = Math.floor(Date.now() / 86400000) + 25569;
-  return { start: todaySerial - days + 1, end: todaySerial };
+  // end = yesterday, start = yesterday - (days - 1), so "last 7 days" = 7 complete days before today
+  return { start: todaySerial - days, end: todaySerial - 1 };
 }
 
 export function getDateRangeFromStrings(startDate, endDate) {

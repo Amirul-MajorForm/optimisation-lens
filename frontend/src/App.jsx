@@ -35,6 +35,29 @@ export default function App() {
 
   const theme = darkMode ? DARK : LIGHT;
 
+  function computeDateLabel(params) {
+    if (params.dateRange === 'custom' && params.startDate && params.endDate) {
+      return `${fmtDateStr(params.startDate)} – ${fmtDateStr(params.endDate)}`;
+    }
+    const days = parseInt(params.dateRange);
+    if (!days) return '';
+    const now = new Date();
+    const endUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+    const startUTC = new Date(Date.UTC(endUTC.getUTCFullYear(), endUTC.getUTCMonth(), endUTC.getUTCDate() - days + 1));
+    return `${fmtDate(startUTC)} – ${fmtDate(endUTC)}`;
+  }
+
+  function fmtDate(d) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+
+  function fmtDateStr(s) {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  }
+
+  const dateLabel = computeDateLabel(fetchParams);
+
   const handleDateRangeChange = (val) => {
     setDateRange(val);
     if (val !== 'custom') setFetchParams({ dateRange: val, startDate: '', endDate: '' });
@@ -168,6 +191,9 @@ export default function App() {
         onCustomStartChange={setCustomStart}
         onCustomEndChange={setCustomEnd}
         onApplyCustom={handleApplyCustom}
+        dateLabel={dateLabel}
+        onRefresh={load}
+        refreshing={loading}
       />
 
       <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'flex-start' }}>

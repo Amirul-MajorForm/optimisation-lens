@@ -21,6 +21,7 @@ export default function Header({
   client, onClientChange,
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
+  dateLabel, onRefresh, refreshing,
 }) {
   const sel = {
     background: theme.surface,
@@ -144,6 +145,48 @@ export default function Header({
             </button>
           </>
         )}
+
+        {/* Date range label */}
+        {dateLabel && dateRange !== 'custom' && (
+          <span style={{
+            fontSize: 12,
+            color: theme.textMuted,
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
+            fontFamily: "'Space Grotesk', sans-serif",
+          }}>
+            {dateLabel}
+          </span>
+        )}
+
+        {/* Refresh */}
+        <button
+          onClick={onRefresh}
+          disabled={refreshing}
+          title="Refresh data"
+          style={{
+            background: theme.surfaceAlt,
+            border: `1px solid ${theme.border}`,
+            borderRadius: 8,
+            padding: '7px 10px',
+            cursor: refreshing ? 'not-allowed' : 'pointer',
+            color: theme.textSecondary,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+            opacity: refreshing ? 0.5 : 1,
+            transition: 'opacity 0.15s',
+          }}
+        >
+          <svg
+            width="15" height="15" viewBox="0 0 24 24" fill="none"
+            style={{ animation: refreshing ? 'spin 1s linear infinite' : 'none' }}
+          >
+            <path d="M4 12a8 8 0 018-8 8 8 0 015.657 2.343L20 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M20 4v5h-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            <path d="M20 12a8 8 0 01-8 8 8 8 0 01-5.657-2.343L4 15" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            <path d="M4 20v-5h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
 
         {/* Dark mode toggle */}
         <button
