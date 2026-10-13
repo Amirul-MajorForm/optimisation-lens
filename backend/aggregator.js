@@ -117,15 +117,19 @@ function parseMeta(rows, cols, campaignFilter, dateRange, convColIndex = -1) {
   return Array.from(map.values());
 }
 
+// Conversion event column names follow "Action - Stage" format (e.g. "Class Pack - Sign Up Start")
+function isConversionColName(name) {
+  return name.includes(' - ');
+}
+
 // Returns array of { name, colIndex } for named conversion columns found in header row (Google Conversions sheet)
 export function parseConversionColumns(convRows) {
   if (!convRows || convRows.length < 1) return [];
   const header = convRows[0];
   const result = [];
-  // Skip fixed cols (date=2, campaign=3), scan from col 4 onwards
-  for (let i = 4; i < header.length; i++) {
+  for (let i = 0; i < header.length; i++) {
     const name = String(header[i] ?? '').trim();
-    if (name) result.push({ name, colIndex: i });
+    if (name && isConversionColName(name)) result.push({ name, colIndex: i });
   }
   return result;
 }
@@ -139,7 +143,7 @@ export function parseMetaConversionColumns(metaRows, fixedCols) {
   for (let i = 0; i < header.length; i++) {
     if (fixedSet.has(i)) continue;
     const name = String(header[i] ?? '').trim();
-    if (name) result.push({ name, colIndex: i });
+    if (name && isConversionColName(name)) result.push({ name, colIndex: i });
   }
   return result;
 }
