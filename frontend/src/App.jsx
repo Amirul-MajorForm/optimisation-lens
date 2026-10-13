@@ -117,7 +117,7 @@ export default function App() {
       id: 'chart',
       label: 'Performance & Platform Metrics',
       render: () => (
-        <div style={{ display: 'grid', gridTemplateColumns: showGoogle ? '40% 1fr' : '1fr', gap: 16, alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: showGoogle ? '1fr 1fr' : '1fr', gap: 16, alignItems: 'start' }}>
           <PerformanceChart
             theme={theme}
             metaByDate={meta?.byDate}
