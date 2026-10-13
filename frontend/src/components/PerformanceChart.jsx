@@ -248,6 +248,10 @@ export default function PerformanceChart({ theme, metaByDate, googleByDate, show
       borderRadius: 14,
       padding: '20px 24px',
       transition: 'background 0.25s',
+      height: '100%',
+      boxSizing: 'border-box',
+      display: 'flex',
+      flexDirection: 'column',
     }}>
       <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginBottom: 20 }}>
         <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 15, color: theme.textPrimary, marginRight: 4 }}>
@@ -288,11 +292,12 @@ export default function PerformanceChart({ theme, metaByDate, googleByDate, show
       </div>
 
       {loading ? (
-        <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: theme.textMuted, fontSize: 14 }}>
+        <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: theme.textMuted, fontSize: 14 }}>
           Loading chart data…
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={240}>
+        <div style={{ flex: 1, minHeight: 0 }}>
+        <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={theme.border} vertical={false} />
             <XAxis
@@ -333,6 +338,7 @@ export default function PerformanceChart({ theme, metaByDate, googleByDate, show
             ))}
           </LineChart>
         </ResponsiveContainer>
+        </div>
       )}
     </div>
   );
