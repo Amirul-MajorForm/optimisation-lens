@@ -25,6 +25,7 @@ export default function Header({
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
   dateLabel, onRefresh, refreshing, activeTab,
+  availableConversions, selectedConversion, onConversionColChange,
 }) {
   const sel = {
     background: theme.surface,
@@ -111,6 +112,25 @@ export default function Header({
           >
             Apply
           </button>
+        </>
+      )}
+
+      {/* Conversion column selector */}
+      {availableConversions?.length > 0 && (
+        <>
+          <div style={{ width: 1, height: 20, background: theme.border }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <span style={{ fontSize: 12, color: theme.textMuted, whiteSpace: 'nowrap' }}>Conv:</span>
+            <select
+              value={selectedConversion}
+              onChange={e => onConversionColChange(e.target.value)}
+              style={{ ...sel, minWidth: 180 }}
+            >
+              {availableConversions.map(name => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+          </div>
         </>
       )}
 

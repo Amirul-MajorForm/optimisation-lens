@@ -32,6 +32,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('overview');
+  const [conversionCol, setConversionCol] = useState(() => {
+    try { return localStorage.getItem(`conv-col-${client}`) || ''; } catch { return ''; }
+  });
 
   const theme = darkMode ? DARK : LIGHT;
 
@@ -63,6 +66,11 @@ export default function App() {
     if (val !== 'custom') setFetchParams({ dateRange: val, startDate: '', endDate: '' });
   };
 
+  const handleConversionColChange = (val) => {
+    setConversionCol(val);
+    try { localStorage.setItem(`conv-col-${client}`, val); } catch {}
+  };
+
   const handleApplyCustom = () => {
     if (customStart && customEnd && customStart <= customEnd) {
       setFetchParams({ dateRange: 'custom', startDate: customStart, endDate: customEnd });
@@ -73,14 +81,14 @@ export default function App() {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchDashboard({ client, ...fetchParams });
+      const result = await fetchDashboard({ client, ...fetchParams, conversionCol: conversionCol || undefined });
       setData(result);
     } catch (e) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, [client, fetchParams]);
+  }, [client, fetchParams, conversionCol]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -201,6 +209,9 @@ export default function App() {
           onRefresh={load}
           refreshing={loading}
           activeTab={activeTab}
+          availableConversions={data?.availableConversions || []}
+          selectedConversion={conversionCol || data?.selectedConversion || ''}
+          onConversionColChange={handleConversionColChange}
         />
 
         <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 64px' }}>

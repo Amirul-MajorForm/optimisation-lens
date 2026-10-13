@@ -12,7 +12,7 @@ const STRONG_META = {
 };
 
 const SEARCH_IS = { date: 2, campaign: 3, spend: 5, impressions: 6, clicks: 7, conversions: 8, ctr: 11 };
-const CONVERSIONS = { date: 2, campaign: 3, conversions: 7 };
+const CONV_FIXED = { date: 2, campaign: 3 }; // conversion col detected dynamically from header
 
 const ACADEMY_RE = /ACADEMY|YMTT|TEACHER\s*TRAINING/i;
 
@@ -114,8 +114,22 @@ function parseMeta(rows, cols, campaignFilter, dateRange) {
   return Array.from(map.values());
 }
 
+// Returns array of { name, colIndex } for named conversion columns found in header row
+export function parseConversionColumns(convRows) {
+  if (!convRows || convRows.length < 1) return [];
+  const header = convRows[0];
+  const result = [];
+  // Skip fixed cols (date=2, campaign=3), scan from col 4 onwards
+  for (let i = 4; i < header.length; i++) {
+    const name = String(header[i] ?? '').trim();
+    if (name) result.push({ name, colIndex: i });
+  }
+  return result;
+}
+
 // Parse Google Search IS + Conversions, merged by (date, campaign)
-function parseGoogle(searchRows, convRows, googleFilter, dateRange) {
+// convColIndex: column index in convRows to use for conversions (or -1 to skip)
+function parseGoogle(searchRows, convRows, googleFilter, dateRange, convColIndex) {
   const searchMap = new Map();
   for (const row of searchRows) {
     const serial = row[SEARCH_IS.date];
@@ -135,15 +149,17 @@ function parseGoogle(searchRows, convRows, googleFilter, dateRange) {
   }
 
   const convMap = new Map();
-  for (const row of convRows) {
-    const serial = row[CONVERSIONS.date];
-    if (!isValidSerial(serial)) continue;
-    if (serial < dateRange.start || serial > dateRange.end) continue;
-    const campaign = String(row[CONVERSIONS.campaign] ?? '').trim();
-    if (!campaign || !googleFilter(campaign)) continue;
-    const dateStr = serialToDateStr(serial);
-    const key = `${dateStr}||${campaign}`;
-    convMap.set(key, (convMap.get(key) ?? 0) + n(row[CONVERSIONS.conversions]));
+  if (convColIndex >= 0 && convRows.length > 1) {
+    for (const row of convRows.slice(1)) {
+      const serial = row[CONV_FIXED.date];
+      if (!isValidSerial(serial)) continue;
+      if (serial < dateRange.start || serial > dateRange.end) continue;
+      const campaign = String(row[CONV_FIXED.campaign] ?? '').trim();
+      if (!campaign || !googleFilter(campaign)) continue;
+      const dateStr = serialToDateStr(serial);
+      const key = `${dateStr}||${campaign}`;
+      convMap.set(key, (convMap.get(key) ?? 0) + n(row[convColIndex]));
+    }
   }
 
   return Array.from(searchMap.entries()).map(([key, s]) => ({
@@ -255,7 +271,7 @@ function byDateGoogle(rows) {
   return map;
 }
 
-export function aggregateData(metaRows, searchRows, convRows, clientId, _campaignGroup, dateRange) {
+export function aggregateData(metaRows, searchRows, convRows, clientId, _campaignGroup, dateRange, options = {}) {
   const config = CLIENT_CONFIG[clientId];
   if (!config) throw new Error(`Unknown client: ${clientId}`);
 
@@ -274,10 +290,29 @@ export function aggregateData(metaRows, searchRows, convRows, clientId, _campaig
       campaigns: rollUpMetaCampaigns(parsedMeta),
     },
     google: null,
+    availableConversions: [],
+    selectedConversion: null,
   };
 
   if (config.searchSheet && config.googleFilter) {
-    const parsedGoogle = parseGoogle(searchRows, convRows, config.googleFilter, dateRange);
+    const availableCols = parseConversionColumns(convRows);
+    result.availableConversions = availableCols.map(c => c.name);
+
+    // Pick the requested conversion column, or default to the first one
+    const { conversionCol } = options;
+    let convColIndex = -1;
+    let selectedConversion = null;
+    if (availableCols.length > 0) {
+      const match = conversionCol
+        ? availableCols.find(c => c.name === conversionCol)
+        : null;
+      const chosen = match || availableCols[0];
+      convColIndex = chosen.colIndex;
+      selectedConversion = chosen.name;
+    }
+    result.selectedConversion = selectedConversion;
+
+    const parsedGoogle = parseGoogle(searchRows, convRows, config.googleFilter, dateRange, convColIndex);
     const googleRaw = sumGoogle(parsedGoogle);
     result.google = {
       total: {

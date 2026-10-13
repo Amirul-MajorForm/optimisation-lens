@@ -1,9 +1,10 @@
-export async function fetchDashboard({ client, dateRange, startDate, endDate }) {
+export async function fetchDashboard({ client, dateRange, startDate, endDate, conversionCol }) {
   const params = new URLSearchParams({ client, dateRange: String(dateRange) });
   if (dateRange === 'custom' && startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
   }
+  if (conversionCol) params.set('conversionCol', conversionCol);
   const res = await fetch(`/api/dashboard?${params}`);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

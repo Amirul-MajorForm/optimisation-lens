@@ -88,7 +88,7 @@ app.get('/api/dashboard', async (req, res) => {
       return res.status(500).json({ error: 'GOOGLE_API_KEY not configured' });
     }
 
-    const { client = 'ym-sg', dateRange: drParam = '7', startDate, endDate } = req.query;
+    const { client = 'ym-sg', dateRange: drParam = '7', startDate, endDate, conversionCol } = req.query;
 
     const config = getClientConfig(client);
     if (!config) return res.status(400).json({ error: `Unknown client: ${client}` });
@@ -112,6 +112,7 @@ app.get('/api/dashboard', async (req, res) => {
       client,
       null,
       dateRange,
+      { conversionCol },
     );
 
     res.json(result);
