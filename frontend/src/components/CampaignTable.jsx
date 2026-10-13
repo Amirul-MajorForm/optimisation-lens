@@ -105,7 +105,6 @@ const METRIC_COLS = [
   { key: 'clicks',      label: 'Clicks',      sortKey: 'clicks',      align: 'right', format: 'number'   },
   { key: 'lpv',         label: 'LPV',         sortKey: 'lpv',         align: 'right', format: 'number'   },
   { key: 'leads',       label: 'Leads',       sortKey: 'leads',       align: 'right', format: 'number'   },
-  { key: 'conversions', label: 'Conv.',       sortKey: 'conversions', align: 'right', format: 'number'   },
   { key: 'ctr',         label: 'CTR',         sortKey: 'ctr',         align: 'right', format: 'percent'  },
   { key: 'cpl',         label: 'CPL',         sortKey: 'cpl',         align: 'right', format: 'currency' },
   { key: 'cpa',         label: 'CPA',         sortKey: 'cpa',         align: 'right', format: 'currency' },
@@ -327,7 +326,7 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
             Columns
           </button>
           {pickerOpen && (
-            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '10px 0', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 200 }}>
+            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '10px 0', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 200, maxHeight: '60vh', overflowY: 'auto' }}>
               {METRIC_COLS.map(col => (
                 <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 16px', cursor: 'pointer', fontSize: 13, color: theme.textPrimary, fontFamily: "'DM Sans', sans-serif" }}>
                   <input type="checkbox" checked={visibleMetrics.has(col.key)} onChange={() => toggleMetric(col.key)} style={{ accentColor: theme.accent, width: 14, height: 14 }} />

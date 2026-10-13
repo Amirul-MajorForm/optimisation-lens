@@ -128,16 +128,20 @@ function convKey(name) {
   return 'conv_' + name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 }
 
-// Returns array of { name, key, colIndex } for named conversion columns in the Google Conversions sheet
-function parseConversionColumns(convRows) {
-  if (!convRows || convRows.length < 1) return [];
-  const header = convRows[0];
-  const result = [];
-  for (let i = 0; i < header.length; i++) {
-    const name = String(header[i] ?? '').trim();
-    if (name && isConversionColName(name)) result.push({ name, key: convKey(name), colIndex: i });
+// Google Conversions sheet is row-based: each row is (date, campaign, conversion_action_name, count).
+// Returns { actionCol, countCol, actions: [{name, key}] }
+function parseGoogleConvActions(convRows) {
+  if (!convRows || convRows.length < 1) return { actionCol: -1, countCol: -1, actions: [] };
+  const header = convRows[0].map(h => String(h ?? '').trim().toLowerCase());
+  const actionCol = header.findIndex(h => h.includes('conversion action'));
+  const countCol = header.findIndex((h, i) => i !== actionCol && (h === 'conversions' || h === 'conv.' || h === 'all conv.' || h.startsWith('conv')));
+  if (actionCol < 0 || countCol < 0) return { actionCol: -1, countCol: -1, actions: [] };
+  const namesSet = new Set();
+  for (const row of convRows.slice(1)) {
+    const name = String(row[actionCol] ?? '').trim();
+    if (name) namesSet.add(name);
   }
-  return result;
+  return { actionCol, countCol, actions: Array.from(namesSet).map(name => ({ name, key: convKey(name) })) };
 }
 
 // Returns array of { name, key, colIndex } for named conversion columns in the Meta sheet header
@@ -154,8 +158,9 @@ function parseMetaConversionColumns(metaRows, fixedCols) {
   return result;
 }
 
-// Parse Google Search IS + Conversions; all named conv columns flattened onto each row
-function parseGoogle(searchRows, convRows, googleFilter, dateRange, convCols) {
+// Parse Google Search IS + Conversions; all named conv actions flattened onto each row
+function parseGoogle(searchRows, convRows, googleFilter, dateRange, convInfo) {
+  const { actionCol, countCol, actions } = convInfo;
   const searchMap = new Map();
   for (const row of searchRows) {
     const serial = row[SEARCH_IS.date];
@@ -167,7 +172,7 @@ function parseGoogle(searchRows, convRows, googleFilter, dateRange, convCols) {
     const key = `${dateStr}||${campaign}`;
     if (!searchMap.has(key)) {
       const init = { dateStr, campaign, spend: 0, impressions: 0, clicks: 0 };
-      for (const c of convCols) init[c.key] = 0;
+      for (const a of actions) init[a.key] = 0;
       searchMap.set(key, init);
     }
     const agg = searchMap.get(key);
@@ -176,7 +181,7 @@ function parseGoogle(searchRows, convRows, googleFilter, dateRange, convCols) {
     agg.clicks += n(row[SEARCH_IS.clicks]);
   }
 
-  if (convRows.length > 1) {
+  if (actionCol >= 0 && countCol >= 0 && convRows.length > 1) {
     for (const row of convRows.slice(1)) {
       const serial = row[CONV_FIXED.date];
       if (!isValidSerial(serial)) continue;
@@ -186,8 +191,10 @@ function parseGoogle(searchRows, convRows, googleFilter, dateRange, convCols) {
       const dateStr = serialToDateStr(serial);
       const key = `${dateStr}||${campaign}`;
       if (!searchMap.has(key)) continue;
+      const actionName = String(row[actionCol] ?? '').trim();
+      const k = convKey(actionName);
       const agg = searchMap.get(key);
-      for (const c of convCols) agg[c.key] += n(row[c.colIndex]);
+      if (k in agg) agg[k] += n(row[countCol]);
     }
   }
 
@@ -336,11 +343,11 @@ export function aggregateData(metaRows, searchRows, convRows, clientId, _campaig
   };
 
   if (config.searchSheet && config.googleFilter) {
-    const googleConvCols = parseConversionColumns(convRows);
-    const googleConvKeys = googleConvCols.map(c => c.key);
-    result.googleConversions = googleConvCols.map(c => ({ name: c.name, key: c.key }));
+    const googleConvInfo = parseGoogleConvActions(convRows);
+    const googleConvKeys = googleConvInfo.actions.map(a => a.key);
+    result.googleConversions = googleConvInfo.actions.map(a => ({ name: a.name, key: a.key }));
 
-    const parsedGoogle = parseGoogle(searchRows, convRows, config.googleFilter, dateRange, googleConvCols);
+    const parsedGoogle = parseGoogle(searchRows, convRows, config.googleFilter, dateRange, googleConvInfo);
     const googleRaw = sumGoogle(parsedGoogle, googleConvKeys);
     result.google = {
       total: {
