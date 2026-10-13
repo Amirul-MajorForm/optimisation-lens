@@ -25,8 +25,6 @@ export default function Header({
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
   dateLabel, onRefresh, refreshing, activeTab,
-  availableConversions, selectedConversion, onConversionColChange,
-  availableMetaConversions, selectedMetaConversion, onMetaConversionColChange,
 }) {
   const sel = {
     background: theme.surface,
@@ -113,44 +111,6 @@ export default function Header({
           >
             Apply
           </button>
-        </>
-      )}
-
-      {/* Meta conversion column selector */}
-      {availableMetaConversions?.length > 0 && (
-        <>
-          <div style={{ width: 1, height: 20, background: theme.border }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: theme.textMuted, whiteSpace: 'nowrap' }}>Meta Conv:</span>
-            <select
-              value={selectedMetaConversion}
-              onChange={e => onMetaConversionColChange(e.target.value)}
-              style={{ ...sel, minWidth: 180 }}
-            >
-              {availableMetaConversions.map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-          </div>
-        </>
-      )}
-
-      {/* Google conversion column selector */}
-      {availableConversions?.length > 0 && (
-        <>
-          <div style={{ width: 1, height: 20, background: theme.border }} />
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <span style={{ fontSize: 12, color: theme.textMuted, whiteSpace: 'nowrap' }}>Google Conv:</span>
-            <select
-              value={selectedConversion}
-              onChange={e => onConversionColChange(e.target.value)}
-              style={{ ...sel, minWidth: 180 }}
-            >
-              {availableConversions.map(name => (
-                <option key={name} value={name}>{name}</option>
-              ))}
-            </select>
-          </div>
         </>
       )}
 

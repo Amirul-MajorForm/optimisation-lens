@@ -67,10 +67,14 @@ function prettifyAdName(str) {
 
 function groupAdsByAdset(ads) {
   const map = new Map();
+  // Collect all conv_ keys present on any ad
+  const convKeys = ads?.length ? Object.keys(ads[0]).filter(k => k.startsWith('conv_')) : [];
   for (const ad of (ads || [])) {
     const key = ad.adset || '';
     if (!map.has(key)) {
-      map.set(key, { adset: key, ads: [], spend: 0, impressions: 0, clicks: 0, lpv: 0, leads: 0 });
+      const init = { adset: key, ads: [], spend: 0, impressions: 0, clicks: 0, lpv: 0, leads: 0 };
+      for (const k of convKeys) init[k] = 0;
+      map.set(key, init);
     }
     const g = map.get(key);
     g.ads.push(ad);
@@ -79,6 +83,7 @@ function groupAdsByAdset(ads) {
     g.clicks += ad.clicks || 0;
     g.lpv += ad.lpv || 0;
     g.leads += ad.leads || 0;
+    for (const k of convKeys) g[k] += ad[k] || 0;
   }
   return Array.from(map.values()).map(g => ({
     ...g,
@@ -86,7 +91,6 @@ function groupAdsByAdset(ads) {
     cpl: g.leads > 0 ? g.spend / g.leads : 0,
     cplv: g.lpv > 0 ? g.spend / g.lpv : 0,
     cpa: g.leads > 0 ? g.spend / g.leads : 0,
-    conversions: g.leads,
   }));
 }
 
@@ -156,13 +160,12 @@ function metricCellStyle(theme, borderBottom) {
   return { padding: '10px 16px', textAlign: 'right', borderBottom, fontSize: 13, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif", fontWeight: 500 };
 }
 
-function AdRow({ ad, theme, visibleMetrics, totalCols }) {
+function AdRow({ ad, theme, visibleMetrics, metricCols }) {
   const derived = {
     ctr: (ad.impressions || 0) > 0 ? ((ad.clicks || 0) / (ad.impressions || 0)) * 100 : 0,
     cpl: (ad.leads || 0) > 0 ? (ad.spend || 0) / (ad.leads || 0) : 0,
     cpa: (ad.leads || 0) > 0 ? (ad.spend || 0) / (ad.leads || 0) : 0,
     cplv: (ad.lpv || 0) > 0 ? (ad.spend || 0) / (ad.lpv || 0) : 0,
-    conversions: ad.leads || 0,
     ...ad,
   };
   const border = `1px solid ${theme.border}`;
@@ -174,7 +177,7 @@ function AdRow({ ad, theme, visibleMetrics, totalCols }) {
         </span>
       </td>
       <td style={{ padding: '8px 16px', borderBottom: border }} />
-      {METRIC_COLS.filter(c => visibleMetrics.has(c.key)).map(col => (
+      {metricCols.filter(c => visibleMetrics.has(c.key)).map(col => (
         <td key={col.key} style={{ padding: '8px 16px', textAlign: 'right', borderBottom: border, fontSize: 12, color: theme.textSecondary, fontFamily: "'Space Grotesk', sans-serif" }}>
           {fmt(derived[col.key], col.format)}
         </td>
@@ -183,7 +186,7 @@ function AdRow({ ad, theme, visibleMetrics, totalCols }) {
   );
 }
 
-function AdsetRow({ adsetGroup, campName, theme, visibleMetrics, expandedAdsets, toggleAdset }) {
+function AdsetRow({ adsetGroup, campName, theme, visibleMetrics, expandedAdsets, toggleAdset, metricCols }) {
   const key = `${campName}||${adsetGroup.adset}`;
   const isOpen = expandedAdsets.has(key);
   const hasAds = adsetGroup.ads?.length > 0;
@@ -206,21 +209,21 @@ function AdsetRow({ adsetGroup, campName, theme, visibleMetrics, expandedAdsets,
           </div>
         </td>
         <td style={{ padding: '9px 16px', borderBottom: isOpen ? 'none' : border }} />
-        {METRIC_COLS.filter(c => visibleMetrics.has(c.key)).map(col => (
+        {metricCols.filter(c => visibleMetrics.has(c.key)).map(col => (
           <td key={col.key} style={{ padding: '9px 16px', textAlign: 'right', borderBottom: isOpen ? 'none' : border, fontSize: 12, color: theme.textSecondary, fontFamily: "'Space Grotesk', sans-serif" }}>
             {fmt(adsetGroup[col.key], col.format)}
           </td>
         ))}
       </tr>
       {isOpen && hasAds && adsetGroup.ads.map((ad, ai) => (
-        <AdRow key={`${key}-ad-${ai}`} ad={ad} theme={theme} visibleMetrics={visibleMetrics} />
+        <AdRow key={`${key}-ad-${ai}`} ad={ad} theme={theme} visibleMetrics={visibleMetrics} metricCols={metricCols} />
       ))}
       {isOpen && <tr><td colSpan={100} style={{ borderBottom: border }} /></tr>}
     </Fragment>
   );
 }
 
-export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, loading }) {
+export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, loading, metaConversions = [], googleConversions = [] }) {
   const [expanded, setExpanded] = useState(new Set());
   const [expandedAdsets, setExpandedAdsets] = useState(new Set());
   const [sortKey, setSortKey] = useState('spend');
@@ -258,20 +261,29 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
   const toggleExpand = (name) => setExpanded(prev => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n; });
   const toggleAdset = (key) => setExpandedAdsets(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
 
+  // Build dynamic conversion columns from backend-detected named columns
+  const dynConvCols = [
+    ...metaConversions.map(({ name, key }) => ({
+      key, label: name, sortKey: key, align: 'right', format: 'number', dynamic: true,
+    })),
+    ...googleConversions.map(({ name, key }) => ({
+      key, label: name, sortKey: key, align: 'right', format: 'number', dynamic: true,
+    })),
+  ].filter((c, i, arr) => arr.findIndex(x => x.key === c.key) === i); // dedupe
+
+  const allMetricCols = [...METRIC_COLS, ...dynConvCols];
+
   const allCampaigns = [
     ...(metaCampaigns || []).map(c => ({
       ...c, platform: 'Meta',
       leads: c.leads ?? 0, lpv: c.lpv ?? 0,
-      conversions: c.leads ?? 0,
       cplv: (c.lpv ?? 0) > 0 ? (c.spend ?? 0) / (c.lpv ?? 0) : 0,
       cpa: (c.leads ?? 0) > 0 ? (c.spend ?? 0) / (c.leads ?? 0) : 0,
     })),
     ...(googleCampaigns || []).map(c => ({
       ...c, platform: 'Google',
-      leads: c.conversions ?? 0, lpv: 0,
-      conversions: c.conversions ?? 0,
-      cplv: 0,
-      cpa: (c.conversions ?? 0) > 0 ? (c.spend ?? 0) / (c.conversions ?? 0) : 0,
+      leads: 0, lpv: 0, cplv: 0,
+      cpa: 0,
     })),
   ].sort((a, b) => {
     const av = a[sortKey] ?? 0, bv = b[sortKey] ?? 0;
@@ -284,7 +296,7 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
     else { setSortKey(key); setSortDir('desc'); }
   };
 
-  const visibleCols = [...FIXED_COLS, ...METRIC_COLS.filter(c => visibleMetrics.has(c.key))];
+  const visibleCols = [...FIXED_COLS, ...allMetricCols.filter(c => visibleMetrics.has(c.key))];
   const totalCols = visibleCols.length;
 
   const thStyle = (col) => ({
@@ -315,13 +327,24 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
             Columns
           </button>
           {pickerOpen && (
-            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '10px 0', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 160 }}>
+            <div style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 10, padding: '10px 0', zIndex: 50, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', minWidth: 200 }}>
               {METRIC_COLS.map(col => (
                 <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 16px', cursor: 'pointer', fontSize: 13, color: theme.textPrimary, fontFamily: "'DM Sans', sans-serif" }}>
                   <input type="checkbox" checked={visibleMetrics.has(col.key)} onChange={() => toggleMetric(col.key)} style={{ accentColor: theme.accent, width: 14, height: 14 }} />
                   {col.label}
                 </label>
               ))}
+              {dynConvCols.length > 0 && (
+                <>
+                  <div style={{ margin: '6px 16px 4px', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', color: theme.textMuted }}>Conversions</div>
+                  {dynConvCols.map(col => (
+                    <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 16px', cursor: 'pointer', fontSize: 13, color: theme.textPrimary, fontFamily: "'DM Sans', sans-serif" }}>
+                      <input type="checkbox" checked={visibleMetrics.has(col.key)} onChange={() => toggleMetric(col.key)} style={{ accentColor: theme.accent, width: 14, height: 14 }} />
+                      {col.label}
+                    </label>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </div>
@@ -389,7 +412,7 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
                       <td style={{ padding: '12px 16px', borderBottom: isOpen ? 'none' : border }}>
                         <PlatformBadge platform={camp.platform} />
                       </td>
-                      {METRIC_COLS.filter(c => visibleMetrics.has(c.key)).map(col => (
+                      {allMetricCols.filter(c => visibleMetrics.has(c.key)).map(col => (
                         <td key={col.key} style={metricCellStyle(theme, isOpen ? 'none' : border)}>
                           {fmt(camp[col.key], col.format)}
                         </td>
@@ -404,6 +427,7 @@ export default function CampaignTable({ theme, metaCampaigns, googleCampaigns, l
                         visibleMetrics={visibleMetrics}
                         expandedAdsets={expandedAdsets}
                         toggleAdset={toggleAdset}
+                        metricCols={allMetricCols}
                       />
                     ))}
                     {isOpen && <tr><td colSpan={totalCols} style={{ borderBottom: border }} /></tr>}
