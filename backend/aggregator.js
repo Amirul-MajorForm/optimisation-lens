@@ -86,8 +86,10 @@ export function getClientConfig(clientId) {
 }
 
 // Parse + deduplicate Meta rows up to (date, campaign, adset, ad) level
-function parseMeta(rows, cols, campaignFilter, dateRange) {
+// convColIndex: optional column index for a named conversion metric
+function parseMeta(rows, cols, campaignFilter, dateRange, convColIndex = -1) {
   const map = new Map();
+  // rows[0] is the header — skip it by checking isValidSerial
   for (const row of rows) {
     const serial = row[cols.date];
     if (!isValidSerial(serial)) continue;
@@ -102,7 +104,7 @@ function parseMeta(rows, cols, campaignFilter, dateRange) {
     const key = `${dateStr}||${campaign}||${adset}||${ad}`;
 
     if (!map.has(key)) {
-      map.set(key, { dateStr, campaign, adset, ad, spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0 });
+      map.set(key, { dateStr, campaign, adset, ad, spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0, conversions: 0 });
     }
     const agg = map.get(key);
     agg.spend += n(row[cols.spend]);
@@ -110,17 +112,32 @@ function parseMeta(rows, cols, campaignFilter, dateRange) {
     agg.impressions += n(row[cols.impressions]);
     agg.leads += n(row[cols.leads]);
     agg.lpv += n(row[cols.lpv]);
+    if (convColIndex >= 0) agg.conversions += n(row[convColIndex]);
   }
   return Array.from(map.values());
 }
 
-// Returns array of { name, colIndex } for named conversion columns found in header row
+// Returns array of { name, colIndex } for named conversion columns found in header row (Google Conversions sheet)
 export function parseConversionColumns(convRows) {
   if (!convRows || convRows.length < 1) return [];
   const header = convRows[0];
   const result = [];
   // Skip fixed cols (date=2, campaign=3), scan from col 4 onwards
   for (let i = 4; i < header.length; i++) {
+    const name = String(header[i] ?? '').trim();
+    if (name) result.push({ name, colIndex: i });
+  }
+  return result;
+}
+
+// Returns array of { name, colIndex } for named conversion columns in the Meta sheet header
+export function parseMetaConversionColumns(metaRows, fixedCols) {
+  if (!metaRows || metaRows.length < 1) return [];
+  const header = metaRows[0];
+  const fixedSet = new Set(Object.values(fixedCols));
+  const result = [];
+  for (let i = 0; i < header.length; i++) {
+    if (fixedSet.has(i)) continue;
     const name = String(header[i] ?? '').trim();
     if (name) result.push({ name, colIndex: i });
   }
@@ -176,7 +193,7 @@ function rollUpMetaCampaigns(adRows) {
   const campMap = new Map();
   for (const row of adRows) {
     if (!campMap.has(row.campaign)) {
-      campMap.set(row.campaign, { name: row.campaign, spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0, adMap: new Map() });
+      campMap.set(row.campaign, { name: row.campaign, spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0, conversions: 0, adMap: new Map() });
     }
     const c = campMap.get(row.campaign);
     c.spend += row.spend;
@@ -184,10 +201,11 @@ function rollUpMetaCampaigns(adRows) {
     c.impressions += row.impressions;
     c.leads += row.leads;
     c.lpv += row.lpv;
+    c.conversions += row.conversions;
 
     const adKey = `${row.adset}||${row.ad}`;
     if (!c.adMap.has(adKey)) {
-      c.adMap.set(adKey, { adset: row.adset, ad: row.ad, spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0 });
+      c.adMap.set(adKey, { adset: row.adset, ad: row.ad, spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0, conversions: 0 });
     }
     const a = c.adMap.get(adKey);
     a.spend += row.spend;
@@ -195,19 +213,22 @@ function rollUpMetaCampaigns(adRows) {
     a.impressions += row.impressions;
     a.leads += row.leads;
     a.lpv += row.lpv;
+    a.conversions += row.conversions;
   }
 
   return Array.from(campMap.values()).map(c => ({
     name: c.name,
-    spend: c.spend, clicks: c.clicks, impressions: c.impressions, leads: c.leads, lpv: c.lpv,
+    spend: c.spend, clicks: c.clicks, impressions: c.impressions, leads: c.leads, lpv: c.lpv, conversions: c.conversions,
     ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
     cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0,
     cpl: c.leads > 0 ? c.spend / c.leads : 0,
+    cpa: c.conversions > 0 ? c.spend / c.conversions : 0,
     ads: Array.from(c.adMap.values()).map(a => ({
       adset: a.adset, ad: a.ad,
-      spend: a.spend, clicks: a.clicks, impressions: a.impressions, leads: a.leads, lpv: a.lpv,
+      spend: a.spend, clicks: a.clicks, impressions: a.impressions, leads: a.leads, lpv: a.lpv, conversions: a.conversions,
       ctr: a.impressions > 0 ? (a.clicks / a.impressions) * 100 : 0,
       cpl: a.leads > 0 ? a.spend / a.leads : 0,
+      cpa: a.conversions > 0 ? a.spend / a.conversions : 0,
     })).sort((a, b) => b.spend - a.spend),
   })).sort((a, b) => b.spend - a.spend);
 }
@@ -238,7 +259,8 @@ function sumMeta(rows) {
     impressions: acc.impressions + r.impressions,
     leads: acc.leads + r.leads,
     lpv: acc.lpv + r.lpv,
-  }), { spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0 });
+    conversions: acc.conversions + r.conversions,
+  }), { spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0, conversions: 0 });
 }
 
 function sumGoogle(rows) {
@@ -253,10 +275,10 @@ function sumGoogle(rows) {
 function byDateMeta(rows) {
   const map = {};
   for (const r of rows) {
-    if (!map[r.dateStr]) map[r.dateStr] = { spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0 };
+    if (!map[r.dateStr]) map[r.dateStr] = { spend: 0, clicks: 0, impressions: 0, leads: 0, lpv: 0, conversions: 0 };
     const d = map[r.dateStr];
     d.spend += r.spend; d.clicks += r.clicks; d.impressions += r.impressions;
-    d.leads += r.leads; d.lpv += r.lpv;
+    d.leads += r.leads; d.lpv += r.lpv; d.conversions += r.conversions;
   }
   return map;
 }
@@ -275,7 +297,21 @@ export function aggregateData(metaRows, searchRows, convRows, clientId, _campaig
   const config = CLIENT_CONFIG[clientId];
   if (!config) throw new Error(`Unknown client: ${clientId}`);
 
-  const parsedMeta = parseMeta(metaRows, config.metaCols, config.metaFilter, dateRange);
+  // Meta conversion columns
+  const availableMetaCols = parseMetaConversionColumns(metaRows, config.metaCols);
+  const { metaConversionCol } = options;
+  let metaConvColIndex = -1;
+  let selectedMetaConversion = null;
+  if (availableMetaCols.length > 0) {
+    const match = metaConversionCol
+      ? availableMetaCols.find(c => c.name === metaConversionCol)
+      : null;
+    const chosen = match || availableMetaCols[0];
+    metaConvColIndex = chosen.colIndex;
+    selectedMetaConversion = chosen.name;
+  }
+
+  const parsedMeta = parseMeta(metaRows, config.metaCols, config.metaFilter, dateRange, metaConvColIndex);
   const metaRaw = sumMeta(parsedMeta);
 
   const result = {
@@ -285,11 +321,14 @@ export function aggregateData(metaRows, searchRows, convRows, clientId, _campaig
         ctr: metaRaw.impressions > 0 ? (metaRaw.clicks / metaRaw.impressions) * 100 : 0,
         cpm: metaRaw.impressions > 0 ? (metaRaw.spend / metaRaw.impressions) * 1000 : 0,
         cpl: metaRaw.leads > 0 ? metaRaw.spend / metaRaw.leads : 0,
+        cpa: metaRaw.conversions > 0 ? metaRaw.spend / metaRaw.conversions : 0,
       },
       byDate: byDateMeta(parsedMeta),
       campaigns: rollUpMetaCampaigns(parsedMeta),
     },
     google: null,
+    availableMetaConversions: availableMetaCols.map(c => c.name),
+    selectedMetaConversion,
     availableConversions: [],
     selectedConversion: null,
   };
@@ -298,7 +337,6 @@ export function aggregateData(metaRows, searchRows, convRows, clientId, _campaig
     const availableCols = parseConversionColumns(convRows);
     result.availableConversions = availableCols.map(c => c.name);
 
-    // Pick the requested conversion column, or default to the first one
     const { conversionCol } = options;
     let convColIndex = -1;
     let selectedConversion = null;
