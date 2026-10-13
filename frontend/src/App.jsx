@@ -115,28 +115,26 @@ export default function App() {
     },
     {
       id: 'chart',
-      label: 'Performance Chart',
+      label: 'Performance & Platform Metrics',
       render: () => (
-        <PerformanceChart
-          theme={theme}
-          metaByDate={meta?.byDate}
-          googleByDate={google?.byDate}
-          showGoogle={showGoogle}
-          dateRange={fetchParams.dateRange === 'custom' ? 0 : parseInt(fetchParams.dateRange)}
-          startDate={fetchParams.startDate}
-          endDate={fetchParams.endDate}
-          loading={loading}
-        />
-      ),
-    },
-    {
-      id: 'platforms',
-      label: 'Platform Metrics',
-      render: () => (
-        <div style={{ display: 'grid', gridTemplateColumns: showGoogle ? '1fr 1fr' : '1fr', gap: 16 }}>
-          {meta && <PlatformTile theme={theme} platform="Meta" data={meta.total} loading={loading} />}
-          {showGoogle && google && (
-            <PlatformTile theme={theme} platform="Google" data={google.total} loading={loading} />
+        <div style={{ display: 'grid', gridTemplateColumns: showGoogle ? '1fr 380px' : '1fr', gap: 16, alignItems: 'start' }}>
+          <PerformanceChart
+            theme={theme}
+            metaByDate={meta?.byDate}
+            googleByDate={google?.byDate}
+            showGoogle={showGoogle}
+            dateRange={fetchParams.dateRange === 'custom' ? 0 : parseInt(fetchParams.dateRange)}
+            startDate={fetchParams.startDate}
+            endDate={fetchParams.endDate}
+            loading={loading}
+          />
+          {(meta || showGoogle) && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {meta && <PlatformTile theme={theme} platform="Meta" data={meta.total} loading={loading} />}
+              {showGoogle && google && (
+                <PlatformTile theme={theme} platform="Google" data={google.total} loading={loading} />
+              )}
+            </div>
           )}
         </div>
       ),

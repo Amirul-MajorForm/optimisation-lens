@@ -288,11 +288,11 @@ export default function PerformanceChart({ theme, metaByDate, googleByDate, show
       </div>
 
       {loading ? (
-        <div style={{ height: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', color: theme.textMuted, fontSize: 14 }}>
+        <div style={{ height: 240, display: 'flex', alignItems: 'center', justifyContent: 'center', color: theme.textMuted, fontSize: 14 }}>
           Loading chart data…
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={300}>
+        <ResponsiveContainer width="100%" height={240}>
           <LineChart data={chartData} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={theme.border} vertical={false} />
             <XAxis

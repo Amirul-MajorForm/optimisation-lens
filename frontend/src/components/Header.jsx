@@ -75,11 +75,6 @@ export default function Header({
         }}>
           {TAB_TITLES[activeTab] || 'Dashboard'}
         </div>
-        {dateLabel && (
-          <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 1 }}>
-            {dateLabel}
-          </div>
-        )}
       </div>
 
       {/* Client selector */}
@@ -88,9 +83,14 @@ export default function Header({
       </select>
 
       {/* Date range */}
-      <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={sel}>
-        {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-      </select>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+        <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={sel}>
+          {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+        </select>
+        {dateLabel && (
+          <span style={{ fontSize: 11, color: theme.textMuted, whiteSpace: 'nowrap' }}>{dateLabel}</span>
+        )}
+      </div>
 
       {/* Custom date inputs */}
       {dateRange === 'custom' && (
