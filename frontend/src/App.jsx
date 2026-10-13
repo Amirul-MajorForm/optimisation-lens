@@ -20,7 +20,7 @@ export const CLIENT_NAMES = {
 };
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(true);
+  const [darkMode, setDarkMode] = useState(false);
   const [client, setClient] = useState('ym-sg');
   // UI state for the date controls
   const [dateRange, setDateRange] = useState('7');
@@ -172,34 +172,40 @@ export default function App() {
 
   return (
     <div style={{
-      minHeight: '100vh',
-      background: theme.bg,
+      display: 'flex',
+      height: '100vh',
+      overflow: 'hidden',
       fontFamily: "'DM Sans', sans-serif",
       color: theme.textPrimary,
       transition: 'background 0.25s, color 0.25s',
     }}>
-      <Header
-        theme={theme}
+      <Sidebar
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
         darkMode={darkMode}
         onToggleDark={() => setDarkMode(d => !d)}
-        client={client}
-        onClientChange={setClient}
-        dateRange={dateRange}
-        onDateRangeChange={handleDateRangeChange}
-        customStart={customStart}
-        customEnd={customEnd}
-        onCustomStartChange={setCustomStart}
-        onCustomEndChange={setCustomEnd}
-        onApplyCustom={handleApplyCustom}
-        dateLabel={dateLabel}
-        onRefresh={load}
-        refreshing={loading}
       />
 
-      <div style={{ maxWidth: 1400, margin: '0 auto', display: 'flex', alignItems: 'flex-start' }}>
-        <Sidebar theme={theme} activeTab={activeTab} onTabChange={setActiveTab} />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: theme.bg }}>
+        <Header
+          theme={theme}
+          darkMode={darkMode}
+          client={client}
+          onClientChange={setClient}
+          dateRange={dateRange}
+          onDateRangeChange={handleDateRangeChange}
+          customStart={customStart}
+          customEnd={customEnd}
+          onCustomStartChange={setCustomStart}
+          onCustomEndChange={setCustomEnd}
+          onApplyCustom={handleApplyCustom}
+          dateLabel={dateLabel}
+          onRefresh={load}
+          refreshing={loading}
+          activeTab={activeTab}
+        />
 
-        <main style={{ flex: 1, padding: '28px 24px 64px', minWidth: 0 }}>
+        <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 64px' }}>
           {activeTab === 'overview' && (
             <>
               {error && (
