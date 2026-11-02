@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
 import { fetchDashboard, generateAIBrief, fetchStyleRef } from './api.js';
 import Header from './components/Header.jsx';
@@ -59,14 +59,21 @@ export default function App() {
     }
   };
 
+  const abortRef = useRef(null);
+
   const load = useCallback(async () => {
+    // Cancel any in-flight request before starting a new one
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchDashboard(fetchParams);
+      const result = await fetchDashboard(fetchParams, controller.signal);
       setData(result);
     } catch (e) {
-      setError(e.message);
+      if (e.name !== 'AbortError') setError(e.message);
     } finally {
       setLoading(false);
     }

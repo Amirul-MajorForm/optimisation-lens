@@ -1,10 +1,10 @@
-export async function fetchDashboard({ dateRange, startDate, endDate, market = 'sg' }) {
+export async function fetchDashboard({ dateRange, startDate, endDate, market = 'sg' }, signal) {
   const params = new URLSearchParams({ dateRange: String(dateRange), market });
   if (dateRange === 'custom' && startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
   }
-  const res = await fetch(`/api/dashboard?${params}`);
+  const res = await fetch(`/api/dashboard?${params}`, { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);

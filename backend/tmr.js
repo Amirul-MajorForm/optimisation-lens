@@ -42,12 +42,18 @@ export function getDateRange(days) {
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
-export async function queryTMR(apiKey, teamId, body) {
+export async function queryTMR(apiKey, teamId, body, attempt = 0) {
   const res = await fetch(`${TMR_BASE}/teams/${teamId}/data/run-query`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  if (res.status === 429 && attempt < 2) {
+    const wait = (attempt + 1) * 5000;
+    console.warn(`[TMR] 429 rate limit, retrying in ${wait}ms (attempt ${attempt + 1})`);
+    await new Promise(r => setTimeout(r, wait));
+    return queryTMR(apiKey, teamId, body, attempt + 1);
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     console.error(`[TMR] ${res.status}:`, text.slice(0, 600));
