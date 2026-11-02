@@ -14,6 +14,17 @@ const TMR_API_KEY = process.env.TMR_API_KEY;
 const DATA_DIR = join(__dirname, 'data');
 const STYLE_REFS_FILE = join(DATA_DIR, 'style-refs.json');
 
+// In-memory cache: key → { ts, data, promise }
+const dashCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 min
+
+function getCached(key) {
+  const e = dashCache.get(key);
+  if (!e) return null;
+  if (Date.now() - e.ts > CACHE_TTL) { dashCache.delete(key); return null; }
+  return e;
+}
+
 function loadStyleRefs() {
   if (!existsSync(STYLE_REFS_FILE)) return {};
   try { return JSON.parse(readFileSync(STYLE_REFS_FILE, 'utf8')); } catch { return {}; }
@@ -97,6 +108,18 @@ app.get('/api/dashboard', async (req, res) => {
       dateRangeObj = getDateRange(days);
     }
 
+    const cacheKey = `${market}_${dateRangeObj.startDate}_${dateRangeObj.endDate}`;
+    const cached = getCached(cacheKey);
+
+    // Serve from cache if fresh
+    if (cached?.data) return res.json(cached.data);
+
+    // Deduplicate: if a fetch is already in-flight for this key, wait for it
+    if (cached?.promise) {
+      const result = await cached.promise;
+      return res.json(result);
+    }
+
     const { accounts } = marketConfig;
 
     const makeQuery = (accountId, metrics) => queryTMR(TMR_API_KEY, TEAM_ID, {
@@ -107,22 +130,31 @@ app.get('/api/dashboard', async (req, res) => {
       sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
     });
 
-    const [ttData, metaData, googleData] = await Promise.all([
-      makeQuery(accounts.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach']),
-      makeQuery(accounts.meta,   ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views']),
-      accounts.google
-        ? makeQuery(accounts.google, ['amount_spent', 'impressions', 'clicks'])
-        : Promise.resolve(null),
-    ]);
+    const fetchPromise = (async () => {
+      const [ttData, metaData, googleData] = await Promise.all([
+        makeQuery(accounts.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach']),
+        makeQuery(accounts.meta,   ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views']),
+        accounts.google
+          ? makeQuery(accounts.google, ['amount_spent', 'impressions', 'clicks'])
+          : Promise.resolve(null),
+      ]);
+      return {
+        tiktok: parsePlatformResult(ttData),
+        meta:   parsePlatformResult(metaData),
+        google: googleData ? parsePlatformResult(googleData) : { campaigns: [], total: {} },
+        dateRange: dateRangeObj,
+        market,
+        marketName: marketConfig.name,
+      };
+    })();
 
-    res.json({
-      tiktok: parsePlatformResult(ttData),
-      meta:   parsePlatformResult(metaData),
-      google: googleData ? parsePlatformResult(googleData) : { campaigns: [], total: {} },
-      dateRange: dateRangeObj,
-      market,
-      marketName: marketConfig.name,
-    });
+    // Store promise immediately so concurrent requests share it
+    dashCache.set(cacheKey, { ts: Date.now(), promise: fetchPromise, data: null });
+
+    const result = await fetchPromise;
+    dashCache.set(cacheKey, { ts: Date.now(), data: result, promise: null });
+
+    res.json(result);
   } catch (err) {
     console.error('[dashboard error]', err.message);
     res.status(500).json({ error: err.message });
