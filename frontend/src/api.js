@@ -1,5 +1,5 @@
-export async function fetchDashboard({ dateRange, startDate, endDate }) {
-  const params = new URLSearchParams({ dateRange: String(dateRange) });
+export async function fetchDashboard({ dateRange, startDate, endDate, market = 'sg' }) {
+  const params = new URLSearchParams({ dateRange: String(dateRange), market });
   if (dateRange === 'custom' && startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
@@ -41,7 +41,7 @@ export async function saveStyleRef(client, text) {
   });
 }
 
-export async function generateAIBrief(data, clientName = 'OATSIDE SG', styleRef = '') {
+export async function generateAIBrief(data, clientName = 'OATSIDE', styleRef = '') {
   const tt = data?.tiktok?.total || {};
   const me = data?.meta?.total || {};
   const go = data?.google?.total || {};
@@ -55,7 +55,7 @@ export async function generateAIBrief(data, clientName = 'OATSIDE SG', styleRef 
     ? `\nMatch the tone and style of this example exactly — don't copy numbers, only style:\n\n${styleRef.trim()}\n`
     : '';
 
-  const prompt = `You are a performance marketing analyst for OATSIDE SG.
+  const prompt = `You are a performance marketing analyst for ${clientName}.
 ${styleSection}
 DATA:
 TikTok — Spend $${Number(tt.spend || 0).toFixed(2)}, Impressions ${Number(tt.impressions || 0).toLocaleString()}, Video Views ${Number(tt.video_play_actions || 0).toLocaleString()}, Clicks ${tt.clicks || 0}, CTR ${Number(tt.ctr || 0).toFixed(2)}%, CPM $${Number(tt.cpm || 0).toFixed(2)}, Reach ${Number(tt.reach || 0).toLocaleString()}

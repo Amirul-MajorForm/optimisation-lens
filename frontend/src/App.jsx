@@ -8,10 +8,11 @@ import AIBrief from './components/AIBrief.jsx';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
+  const [market, setMarket] = useState('sg');
   const [dateRange, setDateRange] = useState('7');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [fetchParams, setFetchParams] = useState({ dateRange: '7', startDate: '', endDate: '' });
+  const [fetchParams, setFetchParams] = useState({ dateRange: '7', startDate: '', endDate: '', market: 'sg' });
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -42,14 +43,19 @@ export default function App() {
 
   const dateLabel = computeDateLabel(fetchParams);
 
+  const handleMarketChange = (val) => {
+    setMarket(val);
+    setFetchParams(p => ({ ...p, market: val }));
+  };
+
   const handleDateRangeChange = (val) => {
     setDateRange(val);
-    if (val !== 'custom') setFetchParams({ dateRange: val, startDate: '', endDate: '' });
+    if (val !== 'custom') setFetchParams(p => ({ ...p, dateRange: val, startDate: '', endDate: '' }));
   };
 
   const handleApplyCustom = () => {
     if (customStart && customEnd && customStart <= customEnd) {
-      setFetchParams({ dateRange: 'custom', startDate: customStart, endDate: customEnd });
+      setFetchParams(p => ({ ...p, dateRange: 'custom', startDate: customStart, endDate: customEnd }));
     }
   };
 
@@ -99,6 +105,9 @@ export default function App() {
         <Header
           theme={theme}
           darkMode={darkMode}
+          market={market}
+          onMarketChange={handleMarketChange}
+          marketName={data?.marketName || ''}
           dateRange={dateRange}
           onDateRangeChange={handleDateRangeChange}
           customStart={customStart}
@@ -131,7 +140,7 @@ export default function App() {
             <AIBrief
               theme={theme}
               data={data}
-              clientName="OATSIDE SG"
+              clientName={data?.marketName || 'OATSIDE'}
               loading={loading}
             />
           )}

@@ -7,8 +7,16 @@ const DATE_RANGES = [
   { value: 'custom', label: 'Custom range…' },
 ];
 
+const MARKETS = [
+  { value: 'sg', label: 'SG' },
+  { value: 'my', label: 'MY' },
+  { value: 'ph', label: 'PH' },
+  { value: 'vn', label: 'VN' },
+];
+
 export default function Header({
   theme, darkMode,
+  market, onMarketChange, marketName,
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
   dateLabel, onRefresh, refreshing,
@@ -59,11 +67,35 @@ export default function Header({
           color: theme.textPrimary,
           lineHeight: 1.2,
         }}>
-          OATSIDE SG
+          {marketName || 'OATSIDE'}
         </div>
         <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 1 }}>
           Performance Dashboard
         </div>
+      </div>
+
+      {/* Market tabs */}
+      <div style={{ display: 'flex', gap: 4, background: theme.surfaceAlt, borderRadius: 9, padding: 3, border: `1px solid ${theme.border}` }}>
+        {MARKETS.map(m => (
+          <button
+            key={m.value}
+            onClick={() => onMarketChange(m.value)}
+            style={{
+              padding: '5px 12px',
+              borderRadius: 6,
+              border: 'none',
+              cursor: 'pointer',
+              fontSize: 12,
+              fontWeight: market === m.value ? 700 : 500,
+              fontFamily: "'DM Sans', sans-serif",
+              background: market === m.value ? 'linear-gradient(135deg, #2563eb, #7c3aed)' : 'transparent',
+              color: market === m.value ? '#fff' : theme.textSecondary,
+              transition: 'all 0.15s',
+            }}
+          >
+            {m.label}
+          </button>
+        ))}
       </div>
 
       <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={sel}>

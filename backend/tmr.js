@@ -1,11 +1,37 @@
 const TMR_BASE = process.env.TMR_BASE_URL || 'https://api.twominutereports.com/v1';
 
-export const OATSIDE = {
-  teamId: process.env.TMR_TEAM_ID || '019d0ca3-ce95-7387-a650-5e055605107a',
-  accounts: {
-    tiktok: 'ttads_7216573742091091970',
-    meta:   'fads_act_764971328270854',
-    google: 'gadw_3685435931',
+export const TEAM_ID = process.env.TMR_TEAM_ID || '019d0ca3-ce95-7387-a650-5e055605107a';
+
+export const MARKETS = {
+  sg: {
+    name: 'OATSIDE SG',
+    accounts: {
+      tiktok: 'ttads_7216573742091091970',
+      meta:   'fads_act_764971328270854',
+      google: 'gadw_3685435931',
+    },
+  },
+  my: {
+    name: 'OATSIDE MY',
+    accounts: {
+      tiktok: 'ttads_7421836044171132944',
+      meta:   'fads_act_480865091512259',
+    },
+  },
+  ph: {
+    name: 'OATSIDE PH',
+    accounts: {
+      tiktok: 'ttads_7337602518762930178',
+      meta:   'fads_act_1073423930376728',
+    },
+  },
+  vn: {
+    name: 'OATSIDE VN',
+    accounts: {
+      tiktok: 'ttads_7539818342035931137',
+      meta:   'fads_act_2540917533074538',
+      google: 'gadw_8618833919',
+    },
   },
 };
 

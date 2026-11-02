@@ -4,7 +4,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { OATSIDE, queryTMR, parsePlatformResult, getDateRange } from './tmr.js';
+import { TEAM_ID, MARKETS, queryTMR, parsePlatformResult, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -84,7 +84,10 @@ app.get('/api/dashboard', async (req, res) => {
       return res.status(500).json({ error: 'TMR_API_KEY not set in .env — add TMR_API_KEY=your_key' });
     }
 
-    const { dateRange: drParam = '7', startDate, endDate } = req.query;
+    const { dateRange: drParam = '7', startDate, endDate, market = 'sg' } = req.query;
+
+    const marketConfig = MARKETS[market];
+    if (!marketConfig) return res.status(400).json({ error: `Unknown market: ${market}` });
 
     let dateRangeObj;
     if (drParam === 'custom' && startDate && endDate) {
@@ -94,37 +97,31 @@ app.get('/api/dashboard', async (req, res) => {
       dateRangeObj = getDateRange(days);
     }
 
-    const { teamId, accounts } = OATSIDE;
+    const { accounts } = marketConfig;
+
+    const makeQuery = (accountId, metrics) => queryTMR(TMR_API_KEY, TEAM_ID, {
+      accounts: [accountId],
+      dimensions: ['campaign_name'],
+      metrics,
+      dateRange: dateRangeObj,
+      sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
+    });
 
     const [ttData, metaData, googleData] = await Promise.all([
-      queryTMR(TMR_API_KEY, teamId, {
-        accounts: [accounts.tiktok],
-        dimensions: ['campaign_name'],
-        metrics: ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach'],
-        dateRange: dateRangeObj,
-        sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
-      }),
-      queryTMR(TMR_API_KEY, teamId, {
-        accounts: [accounts.meta],
-        dimensions: ['campaign_name'],
-        metrics: ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views'],
-        dateRange: dateRangeObj,
-        sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
-      }),
-      queryTMR(TMR_API_KEY, teamId, {
-        accounts: [accounts.google],
-        dimensions: ['campaign_name'],
-        metrics: ['amount_spent', 'impressions', 'clicks'],
-        dateRange: dateRangeObj,
-        sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
-      }),
+      makeQuery(accounts.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach']),
+      makeQuery(accounts.meta,   ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views']),
+      accounts.google
+        ? makeQuery(accounts.google, ['amount_spent', 'impressions', 'clicks'])
+        : Promise.resolve(null),
     ]);
 
     res.json({
       tiktok: parsePlatformResult(ttData),
       meta:   parsePlatformResult(metaData),
-      google: parsePlatformResult(googleData),
+      google: googleData ? parsePlatformResult(googleData) : { campaigns: [], total: {} },
       dateRange: dateRangeObj,
+      market,
+      marketName: marketConfig.name,
     });
   } catch (err) {
     console.error('[dashboard error]', err.message);
