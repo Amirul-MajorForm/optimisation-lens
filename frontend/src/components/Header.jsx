@@ -1,30 +1,17 @@
-const CLIENTS = [
-  { value: 'ym-sg', label: 'Yoga Movement SG' },
-  { value: 'ym-academy', label: 'Yoga Movement Academy' },
-  { value: 'ym-hk', label: 'Yoga Movement HK' },
-  { value: 'strong', label: 'Strong' },
-];
-
 const DATE_RANGES = [
-  { value: '7',  label: 'Last 7 days' },
-  { value: '14', label: 'Last 14 days' },
-  { value: '30', label: 'Last 30 days' },
-  { value: '60', label: 'Last 60 days' },
-  { value: '90', label: 'Last 90 days' },
+  { value: '7',      label: 'Last 7 days' },
+  { value: '14',     label: 'Last 14 days' },
+  { value: '30',     label: 'Last 30 days' },
+  { value: '60',     label: 'Last 60 days' },
+  { value: '90',     label: 'Last 90 days' },
   { value: 'custom', label: 'Custom range…' },
 ];
 
-const TAB_TITLES = {
-  overview: 'Campaign Analysis',
-  search: 'Search Analysis',
-};
-
 export default function Header({
   theme, darkMode,
-  client, onClientChange,
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
-  dateLabel, onRefresh, refreshing, activeTab,
+  dateLabel, onRefresh, refreshing,
 }) {
   const sel = {
     background: theme.surface,
@@ -64,7 +51,6 @@ export default function Header({
       flexShrink: 0,
       transition: 'background 0.25s',
     }}>
-      {/* Page title */}
       <div style={{ marginRight: 'auto' }}>
         <div style={{
           fontFamily: "'Space Grotesk', sans-serif",
@@ -73,24 +59,23 @@ export default function Header({
           color: theme.textPrimary,
           lineHeight: 1.2,
         }}>
-          {TAB_TITLES[activeTab] || 'Dashboard'}
+          OATSIDE SG
+        </div>
+        <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 1 }}>
+          Performance Dashboard
         </div>
       </div>
 
-      {/* Client selector */}
-      <select value={client} onChange={e => onClientChange(e.target.value)} style={sel}>
-        {CLIENTS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-      </select>
-
-      {/* Date range */}
       <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={sel}>
         {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
       </select>
+
       {dateLabel && (
-        <span style={{ fontSize: 12, color: theme.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>{dateLabel}</span>
+        <span style={{ fontSize: 12, color: theme.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
+          {dateLabel}
+        </span>
       )}
 
-      {/* Custom date inputs */}
       {dateRange === 'custom' && (
         <>
           <input type="date" value={customStart} onChange={e => onCustomStartChange(e.target.value)} max={customEnd || undefined} style={dateInput} />
@@ -106,7 +91,7 @@ export default function Header({
               fontFamily: "'DM Sans', sans-serif",
               cursor: !customStart || !customEnd || customStart > customEnd ? 'not-allowed' : 'pointer',
               opacity: !customStart || !customEnd || customStart > customEnd ? 0.5 : 1,
-              flexShrink: 0, transition: 'opacity 0.15s',
+              flexShrink: 0,
             }}
           >
             Apply
@@ -114,7 +99,6 @@ export default function Header({
         </>
       )}
 
-      {/* Refresh */}
       <button
         onClick={onRefresh}
         disabled={refreshing}

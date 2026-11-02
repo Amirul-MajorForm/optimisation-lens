@@ -1,5 +1,5 @@
-export async function fetchDashboard({ client, dateRange, startDate, endDate }) {
-  const params = new URLSearchParams({ client, dateRange: String(dateRange) });
+export async function fetchDashboard({ dateRange, startDate, endDate }) {
+  const params = new URLSearchParams({ dateRange: String(dateRange) });
   if (dateRange === 'custom' && startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
@@ -41,88 +41,44 @@ export async function saveStyleRef(client, text) {
   });
 }
 
-export async function generateAIBrief(data, clientName, styleRef = '') {
-  const m = data?.meta?.total || {};
-  const g = data?.google?.total || null;
+export async function generateAIBrief(data, clientName = 'OATSIDE SG', styleRef = '') {
+  const tt = data?.tiktok?.total || {};
+  const me = data?.meta?.total || {};
+  const go = data?.google?.total || {};
 
-  const topCampaigns = (data?.meta?.campaigns || [])
-    .slice(0, 5)
-    .map(c => `  • ${c.name}: $${c.spend.toFixed(2)} spend, ${c.leads} leads, ${c.ctr.toFixed(2)}% CTR`)
-    .join('\n');
+  const fmtCampaigns = (campaigns = [], platform) =>
+    (campaigns || []).slice(0, 5)
+      .map(c => `  • [${platform}] ${c.campaign_name}: $${Number(c.spend || 0).toFixed(2)} spend`)
+      .join('\n');
 
   const styleSection = styleRef?.trim()
-    ? `\nHere is an example of our previous reporting style. Match this tone, language, and level of detail exactly — do not copy the numbers, only the style:\n\n${styleRef.trim()}\n`
+    ? `\nMatch the tone and style of this example exactly — don't copy numbers, only style:\n\n${styleRef.trim()}\n`
     : '';
 
-  const prompt = `You are a performance marketing analyst. Provide a concise brief for ${clientName}.
+  const prompt = `You are a performance marketing analyst for OATSIDE SG.
 ${styleSection}
 DATA:
-META: Spend $${m.spend?.toFixed(2) ?? 0}, Impressions ${(m.impressions ?? 0).toLocaleString()}, Clicks ${m.clicks ?? 0}, CTR ${m.ctr?.toFixed(2) ?? 0}%, Leads ${m.leads ?? 0}, CPL $${m.cpl?.toFixed(2) ?? 0}, CPM $${m.cpm?.toFixed(2) ?? 0}
-${g ? `GOOGLE: Spend $${g.spend?.toFixed(2)}, Impressions ${g.impressions?.toLocaleString()}, Clicks ${g.clicks}, CTR ${g.ctr?.toFixed(2)}%, Conversions ${g.conversions}, CPL $${g.cpl?.toFixed(2)}` : ''}
+TikTok — Spend $${Number(tt.spend || 0).toFixed(2)}, Impressions ${Number(tt.impressions || 0).toLocaleString()}, Video Views ${Number(tt.video_play_actions || 0).toLocaleString()}, Clicks ${tt.clicks || 0}, CTR ${Number(tt.ctr || 0).toFixed(2)}%, CPM $${Number(tt.cpm || 0).toFixed(2)}, Reach ${Number(tt.reach || 0).toLocaleString()}
+Meta — Spend $${Number(me.spend || 0).toFixed(2)}, Impressions ${Number(me.impressions || 0).toLocaleString()}, Clicks ${me.clicks || 0}, CTR ${Number(me.ctr || 0).toFixed(2)}%, CPM $${Number(me.cpm || 0).toFixed(2)}, Reach ${Number(me.reach || 0).toLocaleString()}
+Google — Spend $${Number(go.spend || 0).toFixed(2)}, Impressions ${Number(go.impressions || 0).toLocaleString()}, Clicks ${go.clicks || 0}, CTR ${Number(go.ctr || 0).toFixed(2)}%, CPM $${Number(go.cpm || 0).toFixed(2)}
 
-Top campaigns by spend:
-${topCampaigns || '  No campaign data'}
+Top campaigns:
+${fmtCampaigns(data?.tiktok?.campaigns, 'TikTok')}
+${fmtCampaigns(data?.meta?.campaigns, 'Meta')}
+${fmtCampaigns(data?.google?.campaigns, 'Google')}
 
-Respond with EXACTLY this format (keep each section to 2-3 bullets):
+Respond with EXACTLY this format (2-3 bullets each):
 
 **Act Today**
-• [urgent action 1]
-• [urgent action 2]
+• [urgent action]
 
 **Watch**
-• [metric or trend to monitor 1]
-• [metric or trend to monitor 2]
+• [metric or trend to monitor]
 
 **Healthy**
-• [what's performing well 1]
-• [what's performing well 2]
+• [what's performing well]
 
 Be specific and reference actual numbers.`;
 
   return callAnthropic(prompt, 900);
-}
-
-export async function fetchSearchDeepdive({ client, dateRange, startDate, endDate }) {
-  const params = new URLSearchParams({ client, dateRange: String(dateRange) });
-  if (dateRange === 'custom' && startDate && endDate) {
-    params.set('startDate', startDate);
-    params.set('endDate', endDate);
-  }
-  const res = await fetch(`/api/search-deepdive?${params}`);
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-export async function generateSummary(data, clientName, sections, tone) {
-  const m = data?.meta?.total || {};
-  const g = data?.google?.total || null;
-
-  const toneDesc = {
-    executive: 'Concise executive style. Focus on ROI, business impact, key decisions. Use bullet points.',
-    technical: 'Detailed technical analyst style. Include specific metrics, statistical observations, benchmark comparisons.',
-    'client-friendly': 'Friendly, jargon-free style. Celebrate wins, explain clearly, suggest clear next steps.',
-  }[tone] || 'professional and clear';
-
-  const campLines = (data?.meta?.campaigns || [])
-    .slice(0, 8)
-    .map(c => `  • ${c.name}: $${c.spend.toFixed(2)} spend | ${c.leads} leads | ${c.ctr.toFixed(2)}% CTR | $${c.cpl.toFixed(2)} CPL`)
-    .join('\n');
-
-  const prompt = `You are a performance marketing analyst writing a ${tone} report for ${clientName}.
-Tone: ${toneDesc}
-
-DATA SUMMARY:
-Meta — Spend: $${m.spend?.toFixed(2) ?? 0}, Impressions: ${(m.impressions ?? 0).toLocaleString()}, Clicks: ${m.clicks ?? 0}, CTR: ${m.ctr?.toFixed(2) ?? 0}%, Leads: ${m.leads ?? 0}, CPL: $${m.cpl?.toFixed(2) ?? 0}, CPM: $${m.cpm?.toFixed(2) ?? 0}
-${g ? `Google — Spend: $${g.spend?.toFixed(2)}, Impressions: ${g.impressions?.toLocaleString()}, Clicks: ${g.clicks}, CTR: ${g.ctr?.toFixed(2)}%, Conversions: ${g.conversions}, CPL: $${g.cpl?.toFixed(2)}` : 'Google: No data'}
-
-Campaign breakdown:
-${campLines || '  No campaign data'}
-
-Write a report covering these sections: ${sections.join(', ')}.
-Use ## for section headers. Keep each section focused and actionable. Use markdown formatting.`;
-
-  return callAnthropic(prompt, 2000);
 }

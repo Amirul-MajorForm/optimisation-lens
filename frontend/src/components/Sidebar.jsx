@@ -48,7 +48,7 @@ const ICON_SUN = (
 
 const TABS = [
   { id: 'overview', label: 'Campaign Analysis', icon: ICON_CAMPAIGN },
-  { id: 'search',   label: 'Search Analysis',   icon: ICON_SEARCH },
+  { id: 'search',   label: 'AI Brief',          icon: ICON_SEARCH },
 ];
 
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark }) {
