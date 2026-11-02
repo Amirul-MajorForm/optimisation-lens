@@ -44,17 +44,28 @@ app.get('/api/debug-tmr', async (_req, res) => {
       queries: [{ title: 'test', totals: false, query: { dateRange: { startDate: '2026-10-25', endDate: '2026-11-01' }, dimensions: ['campaign_name'], metrics: ['spend'] } }],
     }],
   };
-  try {
-    const r = await fetch(`${BASE}/query/run`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const body = await r.text();
-    res.json({ keySet: true, keyPrefix: key.slice(0, 8) + '…', status: r.status, body: body.slice(0, 500) });
-  } catch (e) {
-    res.json({ keySet: true, error: e.message });
+  const candidates = [
+    `${BASE}/query/run`,
+    `${BASE}/queries/run`,
+    `https://api.twominutereports.com/v2/query/run`,
+    `https://api.twominutereports.com/api/v1/query/run`,
+    `https://api.twominutereports.com/api/query/run`,
+  ];
+  const results = {};
+  for (const url of candidates) {
+    try {
+      const r = await fetch(url, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const body = await r.text();
+      results[url] = { status: r.status, body: body.slice(0, 200) };
+    } catch (e) {
+      results[url] = { error: e.message };
+    }
   }
+  res.json({ keySet: true, keyPrefix: key.slice(0, 8) + '…', results });
 });
 
 app.get('/api/style-ref', (req, res) => {
