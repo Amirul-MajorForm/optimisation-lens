@@ -34,9 +34,15 @@ export async function queryTMR(apiKey, teamId, body) {
 
 export function parsePlatformResult(tmrResponse) {
   const rows = (tmrResponse?.data || []).map(row => {
-    // Normalize: amount_spent → spend so frontend keys stay the same
     const out = { ...row };
     if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
+    // Derive rate metrics per row (TMR doesn't return these at row level)
+    const sp  = parseFloat(out.spend) || 0;
+    const imp = parseFloat(out.impressions) || 0;
+    const cl  = parseFloat(out.clicks) || 0;
+    if (!out.ctr || out.ctr === 0) out.ctr = imp > 0 ? (cl / imp) * 100        : 0;
+    if (!out.cpm || out.cpm === 0) out.cpm = imp > 0 ? (sp / imp) * 1000       : 0;
+    if (!out.cpc || out.cpc === 0) out.cpc = cl  > 0 ?  sp / cl                : 0;
     return out;
   });
 
