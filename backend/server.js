@@ -29,6 +29,34 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Debug: test TMR connection without exposing the key
+app.get('/api/debug-tmr', async (_req, res) => {
+  const key = process.env.TMR_API_KEY;
+  if (!key) return res.json({ keySet: false, error: 'TMR_API_KEY not set' });
+
+  const BASE = process.env.TMR_BASE_URL || 'https://api.twominutereports.com/v1';
+  const payload = {
+    teamId: OATSIDE.teamId,
+    connectors: [{
+      connectorId: 'ttads',
+      accountIds: [OATSIDE.accounts.tiktok],
+      currencyCode: 'SGD',
+      queries: [{ title: 'test', totals: false, query: { dateRange: { startDate: '2026-10-25', endDate: '2026-11-01' }, dimensions: ['campaign_name'], metrics: ['spend'] } }],
+    }],
+  };
+  try {
+    const r = await fetch(`${BASE}/query/run`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = await r.text();
+    res.json({ keySet: true, keyPrefix: key.slice(0, 8) + '…', status: r.status, body: body.slice(0, 500) });
+  } catch (e) {
+    res.json({ keySet: true, error: e.message });
+  }
+});
+
 app.get('/api/style-ref', (req, res) => {
   const { client } = req.query;
   if (!client) return res.status(400).json({ error: 'client is required' });
