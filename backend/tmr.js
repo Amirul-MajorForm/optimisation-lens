@@ -30,8 +30,13 @@ export async function queryTMR(apiKey, teamId, connectors) {
   });
 
   if (!res.ok) {
-    const e = await res.json().catch(() => ({}));
-    throw new Error(e.message || e.error || `TMR API ${res.status}: check TMR_BASE_URL and TMR_API_KEY`);
+    const body = await res.text().catch(() => '');
+    let msg = `TMR API ${res.status}`;
+    try { const e = JSON.parse(body); msg = e.message || e.error || msg; } catch {}
+    if (!apiKey) msg = 'TMR_API_KEY is not set — add it to Railway environment variables';
+    else if (res.status === 401 || res.status === 403) msg = `TMR auth failed (${res.status}) — check TMR_API_KEY in Railway`;
+    else if (res.status === 429) msg = `TMR rate limit or auth error (429) — check TMR_API_KEY is valid and not expired`;
+    throw new Error(msg);
   }
   return res.json();
 }
