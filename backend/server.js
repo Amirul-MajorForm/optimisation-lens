@@ -44,36 +44,21 @@ app.get('/api/debug-tmr', async (_req, res) => {
       queries: [{ title: 'test', totals: false, query: { dateRange: { startDate: '2026-10-25', endDate: '2026-11-01' }, dimensions: ['campaign_name'], metrics: ['spend'] } }],
     }],
   };
-  const candidates = [
-    `${BASE}/query/run`,
-    `${BASE}/queries/run`,
-    `${BASE}/query`,
-    `${BASE}/data`,
-    `${BASE}/data/query`,
-    `${BASE}/reports/run`,
-    `${BASE}/connectors/query`,
-    `${BASE}/connector/query`,
-    `${BASE}/run`,
-  ];
-  const commonHeaders = {
-    'Authorization': `Bearer ${key}`,
-    'Content-Type': 'application/json',
-    'User-Agent': 'Mozilla/5.0 (compatible; OptimisationLens/1.0)',
-    'Accept': 'application/json',
-    'Origin': 'https://app.twominutereports.com',
-    'Referer': 'https://app.twominutereports.com/',
-  };
-  const results = {};
-  for (const url of candidates) {
-    try {
-      const r = await fetch(url, { method: 'POST', headers: commonHeaders, body: JSON.stringify(payload) });
-      const body = await r.text();
-      results[url] = { status: r.status, body: body.slice(0, 300) };
-    } catch (e) {
-      results[url] = { error: e.message };
-    }
-  }
-  res.json({ keySet: true, keyPrefix: key.slice(0, 8) + '…', results });
+  const headers = { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' };
+  // Step 1: confirm auth with a known GET endpoint
+  let meStatus, meBody;
+  try {
+    const r = await fetch(`${BASE}/users/me`, { headers });
+    meBody = await r.text();
+    meStatus = r.status;
+  } catch (e) { meBody = e.message; meStatus = 0; }
+
+  res.json({
+    keySet: true,
+    keyPrefix: key.slice(0, 8) + '…',
+    authTest: { url: `${BASE}/users/me`, status: meStatus, body: meBody.slice(0, 400) },
+    note: 'If authTest status is 200, auth works. Reply with result and we will find the data endpoint.',
+  });
 });
 
 app.get('/api/style-ref', (req, res) => {
