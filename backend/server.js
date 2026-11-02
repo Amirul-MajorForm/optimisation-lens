@@ -47,9 +47,13 @@ app.get('/api/debug-tmr', async (_req, res) => {
   const candidates = [
     `${BASE}/query/run`,
     `${BASE}/queries/run`,
-    `https://api.twominutereports.com/v2/query/run`,
-    `https://api.twominutereports.com/api/v1/query/run`,
-    `https://api.twominutereports.com/api/query/run`,
+    `${BASE}/query`,
+    `${BASE}/data`,
+    `${BASE}/data/query`,
+    `${BASE}/reports/run`,
+    `${BASE}/connectors/query`,
+    `${BASE}/connector/query`,
+    `${BASE}/run`,
   ];
   const results = {};
   for (const url of candidates) {
