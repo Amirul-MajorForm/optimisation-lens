@@ -29,37 +29,6 @@ app.use(express.json());
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
-// Debug: test TMR connection without exposing the key
-app.get('/api/debug-tmr', async (_req, res) => {
-  const key = process.env.TMR_API_KEY;
-  if (!key) return res.json({ keySet: false, error: 'TMR_API_KEY not set' });
-
-  const BASE = process.env.TMR_BASE_URL || 'https://api.twominutereports.com/v1';
-  const payload = {
-    teamId: OATSIDE.teamId,
-    connectors: [{
-      connectorId: 'ttads',
-      accountIds: [OATSIDE.accounts.tiktok],
-      currencyCode: 'SGD',
-      queries: [{ title: 'test', totals: false, query: { dateRange: { startDate: '2026-10-25', endDate: '2026-11-01' }, dimensions: ['campaign_name'], metrics: ['spend'] } }],
-    }],
-  };
-  const headers = { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' };
-  // Step 1: confirm auth with a known GET endpoint
-  let meStatus, meBody;
-  try {
-    const r = await fetch(`${BASE}/users/me`, { headers });
-    meBody = await r.text();
-    meStatus = r.status;
-  } catch (e) { meBody = e.message; meStatus = 0; }
-
-  res.json({
-    keySet: true,
-    keyPrefix: key.slice(0, 8) + '…',
-    authTest: { url: `${BASE}/users/me`, status: meStatus, body: meBody.slice(0, 400) },
-    note: 'If authTest status is 200, auth works. Reply with result and we will find the data endpoint.',
-  });
-});
 
 app.get('/api/style-ref', (req, res) => {
   const { client } = req.query;

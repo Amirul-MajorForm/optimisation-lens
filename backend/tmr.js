@@ -20,13 +20,13 @@ export function getDateRange(days) {
 }
 
 export async function queryTMR(apiKey, teamId, connectors) {
-  const res = await fetch(`${TMR_BASE}/query/run`, {
+  const res = await fetch(`${TMR_BASE}/teams/${teamId}/data/run-query`, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ teamId, connectors }),
+    body: JSON.stringify({ connectors }),
   });
 
   if (!res.ok) {
