@@ -4,7 +4,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { OATSIDE, queryTMR, parseConnectorResult, getDateRange } from './tmr.js';
+import { OATSIDE, queryTMR, parsePlatformResult, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -96,64 +96,34 @@ app.get('/api/dashboard', async (req, res) => {
 
     const { teamId, accounts } = OATSIDE;
 
-    const response = await queryTMR(TMR_API_KEY, teamId, [
-      {
-        connectorId: 'ttads',
+    const [ttData, metaData, googleData] = await Promise.all([
+      queryTMR(TMR_API_KEY, teamId, {
         accounts: [accounts.tiktok],
-        currencyCode: 'SGD',
-        queries: [{
-          title: 'TikTok campaigns',
-          totals: true,
-          query: {
-            dateRange: dateRangeObj,
-            dimensions: ['campaign_name'],
-            metrics: ['spend', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc', 'video_play_actions', 'reach'],
-            sort: [{ sortField: 'spend', direction: 'desc' }],
-          },
-        }],
-      },
-      {
-        connectorId: 'fads',
+        dimensions: ['campaign_name'],
+        metrics: ['amount_spent', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc', 'video_play_actions', 'reach'],
+        dateRange: dateRangeObj,
+        sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
+      }),
+      queryTMR(TMR_API_KEY, teamId, {
         accounts: [accounts.meta],
-        currencyCode: 'SGD',
-        queries: [{
-          title: 'Meta campaigns',
-          totals: true,
-          query: {
-            dateRange: dateRangeObj,
-            dimensions: ['campaign_name'],
-            metrics: ['spend', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc', 'reach', 'video_views'],
-            sort: [{ sortField: 'spend', direction: 'desc' }],
-          },
-        }],
-      },
-      {
-        connectorId: 'gadw',
+        dimensions: ['campaign_name'],
+        metrics: ['amount_spent', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc', 'reach', 'video_views'],
+        dateRange: dateRangeObj,
+        sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
+      }),
+      queryTMR(TMR_API_KEY, teamId, {
         accounts: [accounts.google],
-        currencyCode: 'SGD',
-        queries: [{
-          title: 'Google campaigns',
-          totals: true,
-          query: {
-            dateRange: dateRangeObj,
-            dimensions: ['campaign_name'],
-            metrics: ['spend', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc'],
-            sort: [{ sortField: 'spend', direction: 'desc' }],
-          },
-        }],
-      },
+        dimensions: ['campaign_name'],
+        metrics: ['amount_spent', 'impressions', 'clicks', 'ctr', 'cpm', 'cpc'],
+        dateRange: dateRangeObj,
+        sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
+      }),
     ]);
 
-    const byPlatform = {};
-    for (const cr of (response.connectorResults || [])) {
-      const key = { ttads: 'tiktok', fads: 'meta', gadw: 'google' }[cr.connectorId];
-      if (key) byPlatform[key] = parseConnectorResult(cr);
-    }
-
     res.json({
-      tiktok: byPlatform.tiktok || { campaigns: [], total: {} },
-      meta: byPlatform.meta || { campaigns: [], total: {} },
-      google: byPlatform.google || { campaigns: [], total: {} },
+      tiktok: parsePlatformResult(ttData),
+      meta:   parsePlatformResult(metaData),
+      google: parsePlatformResult(googleData),
       dateRange: dateRangeObj,
     });
   } catch (err) {

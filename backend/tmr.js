@@ -3,63 +3,64 @@ const TMR_BASE = process.env.TMR_BASE_URL || 'https://api.twominutereports.com/v
 export const OATSIDE = {
   teamId: process.env.TMR_TEAM_ID || '019d0ca3-ce95-7387-a650-5e055605107a',
   accounts: {
-    tiktok: '7216573742091091970',
-    meta: 'act_764971328270854',
-    google: '3685435931',
+    tiktok: 'ttads_7216573742091091970',
+    meta:   'fads_act_764971328270854',
+    google: 'gadw_3685435931',
   },
 };
 
 export function getDateRange(days) {
   const now = new Date();
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
+  const end   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
   const start = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate() - days + 1));
-  return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate: end.toISOString().slice(0, 10),
-  };
+  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
-export async function queryTMR(apiKey, teamId, connectors) {
+export async function queryTMR(apiKey, teamId, body) {
   const res = await fetch(`${TMR_BASE}/teams/${teamId}/data/run-query`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ connectors }),
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   });
-
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    console.error(`[TMR] ${res.status} from ${TMR_BASE}/teams/${teamId}/data/run-query:`, body.slice(0, 500));
+    const text = await res.text().catch(() => '');
+    console.error(`[TMR] ${res.status}:`, text.slice(0, 600));
     let msg = `TMR API ${res.status}`;
-    try {
-      const e = JSON.parse(body);
-      const errField = e.error;
-      msg = e.message
-        || (typeof errField === 'string' ? errField : errField?.message || JSON.stringify(errField))
-        || msg;
-    } catch {}
+    try { const e = JSON.parse(text); msg = e.error?.message || e.message || msg; } catch {}
     throw new Error(msg);
   }
   return res.json();
 }
 
-export function parseConnectorResult(connectorResult) {
-  const result = connectorResult?.results?.[0];
-  if (!result) return { campaigns: [], total: {} };
+export function parsePlatformResult(tmrResponse) {
+  const rows = (tmrResponse?.data || []).map(row => {
+    // Normalize: amount_spent → spend so frontend keys stay the same
+    const out = { ...row };
+    if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
+    return out;
+  });
 
-  const { data, totals, meta } = result;
-  const fields = [...(meta?.dimensions || []), ...(meta?.metrics || [])];
-
-  const campaigns = (data?.rows || [])
-    .map(row => {
-      const obj = {};
-      fields.forEach((f, i) => { obj[f] = row[i] ?? null; });
-      return obj;
-    })
-    .filter(c => c.campaign_name && parseFloat(c.spend || 0) > 0)
+  const campaigns = rows
+    .filter(r => r.campaign_name && parseFloat(r.spend || 0) > 0)
     .sort((a, b) => (parseFloat(b.spend) || 0) - (parseFloat(a.spend) || 0));
 
-  return { campaigns, total: totals || {} };
+  // Compute totals from rows (additive metrics summed; rates derived)
+  const sum = (key) => rows.reduce((s, r) => s + (parseFloat(r[key]) || 0), 0);
+  const spendTotal = sum('spend');
+  const impTotal   = sum('impressions');
+  const clickTotal = sum('clicks');
+
+  const total = {
+    spend:              spendTotal,
+    impressions:        impTotal,
+    clicks:             clickTotal,
+    video_play_actions: sum('video_play_actions'),
+    reach:              sum('reach'),
+    video_views:        sum('video_views'),
+    ctr:  impTotal   > 0 ? (clickTotal / impTotal) * 100        : 0,
+    cpm:  impTotal   > 0 ? (spendTotal / impTotal) * 1000       : 0,
+    cpc:  clickTotal > 0 ?  spendTotal / clickTotal             : 0,
+  };
+
+  return { campaigns, total };
 }
