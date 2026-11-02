@@ -55,16 +55,20 @@ app.get('/api/debug-tmr', async (_req, res) => {
     `${BASE}/connector/query`,
     `${BASE}/run`,
   ];
+  const commonHeaders = {
+    'Authorization': `Bearer ${key}`,
+    'Content-Type': 'application/json',
+    'User-Agent': 'Mozilla/5.0 (compatible; OptimisationLens/1.0)',
+    'Accept': 'application/json',
+    'Origin': 'https://app.twominutereports.com',
+    'Referer': 'https://app.twominutereports.com/',
+  };
   const results = {};
   for (const url of candidates) {
     try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
+      const r = await fetch(url, { method: 'POST', headers: commonHeaders, body: JSON.stringify(payload) });
       const body = await r.text();
-      results[url] = { status: r.status, body: body.slice(0, 200) };
+      results[url] = { status: r.status, body: body.slice(0, 300) };
     } catch (e) {
       results[url] = { error: e.message };
     }
