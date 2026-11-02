@@ -99,7 +99,7 @@ app.get('/api/dashboard', async (req, res) => {
     const response = await queryTMR(TMR_API_KEY, teamId, [
       {
         connectorId: 'ttads',
-        accountIds: [accounts.tiktok],
+        accounts: [accounts.tiktok],
         currencyCode: 'SGD',
         queries: [{
           title: 'TikTok campaigns',
@@ -114,7 +114,7 @@ app.get('/api/dashboard', async (req, res) => {
       },
       {
         connectorId: 'fads',
-        accountIds: [accounts.meta],
+        accounts: [accounts.meta],
         currencyCode: 'SGD',
         queries: [{
           title: 'Meta campaigns',
@@ -129,7 +129,7 @@ app.get('/api/dashboard', async (req, res) => {
       },
       {
         connectorId: 'gadw',
-        accountIds: [accounts.google],
+        accounts: [accounts.google],
         currencyCode: 'SGD',
         queries: [{
           title: 'Google campaigns',
