@@ -48,8 +48,8 @@ export async function queryTMR(apiKey, teamId, body, attempt = 0) {
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (res.status === 429 && attempt < 2) {
-    const wait = (attempt + 1) * 5000;
+  if (res.status === 429 && attempt < 3) {
+    const wait = (attempt + 1) * 12000; // 12s, 24s, 36s
     console.warn(`[TMR] 429 rate limit, retrying in ${wait}ms (attempt ${attempt + 1})`);
     await new Promise(r => setTimeout(r, wait));
     return queryTMR(apiKey, teamId, body, attempt + 1);

@@ -130,14 +130,16 @@ app.get('/api/dashboard', async (req, res) => {
       sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
     });
 
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+
     const fetchPromise = (async () => {
-      const [ttData, metaData, googleData] = await Promise.all([
-        makeQuery(accounts.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach']),
-        makeQuery(accounts.meta,   ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views']),
-        accounts.google
-          ? makeQuery(accounts.google, ['amount_spent', 'impressions', 'clicks'])
-          : Promise.resolve(null),
-      ]);
+      const ttData   = await makeQuery(accounts.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach']);
+      await sleep(1500);
+      const metaData = await makeQuery(accounts.meta,   ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views']);
+      await sleep(1500);
+      const googleData = accounts.google
+        ? await makeQuery(accounts.google, ['amount_spent', 'impressions', 'clicks'])
+        : null;
       return {
         tiktok: parsePlatformResult(ttData),
         meta:   parsePlatformResult(metaData),
