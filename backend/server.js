@@ -74,9 +74,9 @@ app.get('/api/dashboard', async (req, res) => {
 
       const markets = Object.fromEntries(
         Object.entries(MARKETS).map(([code, cfg]) => [code, {
-          tiktok: parsePlatformResult({ data: ttSplit[code] }),
-          meta:   parsePlatformResult({ data: metaSplit[code] }),
-          google: parsePlatformResult({ data: googleSplit[code] }),
+          tiktok: { ...parsePlatformResult({ data: ttSplit[code] }),     currency: cfg.currency.tiktok },
+          meta:   { ...parsePlatformResult({ data: metaSplit[code] }),   currency: cfg.currency.meta },
+          google: { ...parsePlatformResult({ data: googleSplit[code] }), currency: cfg.currency.google },
           marketName: cfg.name,
         }])
       );

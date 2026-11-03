@@ -44,11 +44,17 @@ export const METRIC_META = {
   ctr:   { label: 'CTR',   color: CHART.ctr,   format: 'percent' },
 };
 
-export function fmt(value, type) {
+// Currencies with no minor unit in practice: show whole numbers
+const ZERO_DECIMAL = new Set(['VND', 'IDR']);
+
+export function fmt(value, type, currency) {
   if (value == null || (typeof value === 'number' && !isFinite(value))) return '—';
   switch (type) {
-    case 'currency':
-      return `$${Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    case 'currency': {
+      const dp = ZERO_DECIMAL.has(currency) ? 0 : 2;
+      const num = Number(value).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+      return currency ? `${currency} ${num}` : `$${num}`;
+    }
     case 'compact-currency':
       return value >= 1000
         ? `$${(value / 1000).toFixed(1)}k`

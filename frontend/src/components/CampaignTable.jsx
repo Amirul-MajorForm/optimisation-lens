@@ -5,7 +5,7 @@ import { fmt } from '../theme.js';
 // Metrics a platform does not report render as "—".
 const COLUMNS = [
   { key: 'campaign_name', label: 'Campaign',    align: 'left',  grow: true, format: null },
-  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency' },
+  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency', width: 150 },
   { key: 'impressions',   label: 'Impr.',       align: 'right', format: 'compact' },
   { key: 'reach',         label: 'Reach',       align: 'right', format: 'compact' },
   { key: 'video_views',   label: 'Video Views', align: 'right', format: 'compact' },
@@ -14,9 +14,10 @@ const COLUMNS = [
   { key: 'cpm',           label: 'CPM',         align: 'right', format: 'currency' },
   { key: 'cpc',           label: 'CPC',         align: 'right', format: 'currency' },
 ];
-const METRIC_COL_WIDTH = 104;
-const CAMPAIGN_COL_MIN = 300;
-const TABLE_MIN_WIDTH = CAMPAIGN_COL_MIN + METRIC_COL_WIDTH * (COLUMNS.length - 1);
+const METRIC_COL_WIDTH = 112;
+const CAMPAIGN_COL_MIN = 240;
+const colWidth = col => col.width ?? METRIC_COL_WIDTH;
+const TABLE_MIN_WIDTH = CAMPAIGN_COL_MIN + COLUMNS.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
 
 // TikTok reports video views as video_play_actions
 function cellValue(row, key) {
@@ -78,12 +79,12 @@ function SkeletonRow({ cols }) {
   );
 }
 
-function KPIRow({ kpis, total, theme }) {
+function KPIRow({ kpis, total, theme, currency }) {
   return (
     <div style={{
       display: 'flex',
       flexWrap: 'wrap',
-      gap: 12,
+      gap: 24,
       padding: '16px 20px',
       background: theme.surfaceAlt,
       borderBottom: `1px solid ${theme.border}`,
@@ -97,7 +98,7 @@ function KPIRow({ kpis, total, theme }) {
               {label}
             </div>
             <div style={{ fontSize: 18, fontWeight: 700, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.01em' }}>
-              {hasVal ? fmt(val, format) : '—'}
+              {hasVal ? fmt(val, format, currency) : '—'}
             </div>
           </div>
         );
@@ -115,7 +116,7 @@ function PlatformSection({ platform, data, theme, loading }) {
   const columns = COLUMNS;
   if (!config) return null;
 
-  const { campaigns = [], total = {} } = data || {};
+  const { campaigns = [], total = {}, currency = 'SGD' } = data || {};
 
   const sorted = [...campaigns].sort((a, b) => {
     const av = cellValue(a, sortKey) ?? 0;
@@ -159,7 +160,7 @@ function PlatformSection({ platform, data, theme, loading }) {
           {config.label}
         </span>
         <span style={{ fontSize: 13, color: theme.textMuted }}>
-          {loading ? '…' : `${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''}`}
+          {loading ? '…' : `${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''} · ${currency}`}
         </span>
         <svg
           width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2"
@@ -172,13 +173,13 @@ function PlatformSection({ platform, data, theme, loading }) {
 
       {expanded && (
         <>
-          <KPIRow kpis={config.kpis} total={total} theme={theme} />
+          <KPIRow kpis={config.kpis} total={total} theme={theme} currency={currency} />
 
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', minWidth: TABLE_MIN_WIDTH, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
               <colgroup>
                 {columns.map(col => (
-                  <col key={col.key} style={col.grow ? undefined : { width: METRIC_COL_WIDTH }} />
+                  <col key={col.key} style={col.grow ? undefined : { width: colWidth(col) }} />
                 ))}
               </colgroup>
               <thead>
@@ -232,7 +233,7 @@ function PlatformSection({ platform, data, theme, loading }) {
                           const val = cellValue(row, col.key);
                           const display = col.format == null
                             ? (val || '—')
-                            : (val == null || val === '' ? '—' : fmt(val, col.format));
+                            : (val == null || val === '' ? '—' : fmt(val, col.format, currency));
                           return (
                             <td
                               key={col.key}

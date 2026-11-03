@@ -2,13 +2,16 @@ const TMR_BASE = process.env.TMR_BASE_URL || 'https://api.twominutereports.com/v
 
 export const TEAM_ID = process.env.TMR_TEAM_ID || '019d0ca3-ce95-7387-a650-5e055605107a';
 
+// Account currency per platform, as reported by each ad account in TMR.
+// TMR returns spend/CPM/CPC in the account's own currency (no conversion).
+// All TikTok and Google accounts bill in SGD; Meta bills in local currency.
 export const MARKETS = {
-  sg: { name: 'OATSIDE SG' },
-  my: { name: 'OATSIDE MY' },
-  ph: { name: 'OATSIDE PH' },
-  vn: { name: 'OATSIDE VN' },
-  id: { name: 'OATSIDE ID' },
-  th: { name: 'OATSIDE TH' },
+  sg: { name: 'OATSIDE SG', currency: { tiktok: 'SGD', meta: 'SGD', google: 'SGD' } },
+  my: { name: 'OATSIDE MY', currency: { tiktok: 'SGD', meta: 'MYR', google: 'SGD' } },
+  ph: { name: 'OATSIDE PH', currency: { tiktok: 'SGD', meta: 'PHP', google: 'SGD' } },
+  vn: { name: 'OATSIDE VN', currency: { tiktok: 'SGD', meta: 'VND', google: 'SGD' } },
+  id: { name: 'OATSIDE ID', currency: { tiktok: 'SGD', meta: 'IDR', google: 'SGD' } },
+  th: { name: 'OATSIDE TH', currency: { tiktok: 'SGD', meta: 'THB', google: 'SGD' } },
 };
 
 // All accounts per platform across every market (for single bulk query)
