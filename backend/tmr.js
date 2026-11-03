@@ -38,6 +38,37 @@ export const ALL_ACCOUNTS = {
   ],
 };
 
+// Meta CPAS (collaborative / marketplace) accounts, shown under Commerce Lens.
+// Grouped by billing currency so every row in one TMR request shares a currency:
+//   local: billed in the market's own Meta currency (see MARKETS[x].currency.meta)
+//   SGD:   billed in SGD even though the market is outside Singapore
+// Not included (no data ever in TMR): SG Redmart act_335142002450041, PH Lazada act_2011132199258393.
+export const CPAS_ACCOUNTS = {
+  local: [
+    'fads_act_1925389034916546', // SG Shopee (SGD)
+    'fads_act_674743694682068',  // SG Shopee - DNU (SGD, historical)
+    'fads_act_1001057058029561', // MY Shopee (MYR)
+    'fads_act_1324603498206088', // PH Shopee (PHP)
+    'fads_act_1196047278954896', // VN Shopee (VND)
+    'fads_act_343672155283730',  // ID Lazada (IDR)
+    'fads_act_1437746287146983', // ID Shopee (IDR)
+    'fads_act_292204293382312',  // ID Tokopedia (IDR)
+  ],
+  SGD: [
+    'fads_act_730983682111075',  // ID Tokopedia (SGD)
+    'fads_act_271434125229951',  // ID Tokopedia (SGD)
+    'fads_act_186600104319744',  // TH Lazada (SGD)
+    'fads_act_742104760960709',  // TH Lazada (SGD)
+    'fads_act_3517635831788796', // TH Shopee (SGD)
+  ],
+};
+
+// Brand-account campaigns with the word "Sales" belong under Commerce Lens.
+// Underscores count as separators, e.g. "SG_Meta_Sales_Oct" matches.
+export function isSalesCampaign(name) {
+  return /(?:^|[^a-z])sales(?:[^a-z]|$)/i.test(name || '');
+}
+
 export function getDateRange(days) {
   const now = new Date();
   const end   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1));
@@ -45,7 +76,24 @@ export function getDateRange(days) {
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
-export async function queryTMR(apiKey, teamId, body, attempt = 0) {
+// All TMR requests (Brand and Commerce, any user) go through one queue so they
+// never run concurrently and start at least TMR_GAP_MS apart (avoids 429s).
+const TMR_GAP_MS = 1500;
+let tmrQueue = Promise.resolve();
+let lastStart = 0;
+
+export function queryTMR(apiKey, teamId, body) {
+  const run = tmrQueue.then(async () => {
+    const wait = lastStart + TMR_GAP_MS - Date.now();
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    lastStart = Date.now();
+    return queryTMRDirect(apiKey, teamId, body);
+  });
+  tmrQueue = run.catch(() => {}); // keep the queue going after a failure
+  return run;
+}
+
+async function queryTMRDirect(apiKey, teamId, body, attempt = 0) {
   const res = await fetch(`${TMR_BASE}/teams/${teamId}/data/run-query`, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -55,7 +103,7 @@ export async function queryTMR(apiKey, teamId, body, attempt = 0) {
     const wait = (attempt + 1) * 12000; // 12s, 24s, 36s
     console.warn(`[TMR] 429 rate limit, retrying in ${wait}ms (attempt ${attempt + 1})`);
     await new Promise(r => setTimeout(r, wait));
-    return queryTMR(apiKey, teamId, body, attempt + 1);
+    return queryTMRDirect(apiKey, teamId, body, attempt + 1);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');

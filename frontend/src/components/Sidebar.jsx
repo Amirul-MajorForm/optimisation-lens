@@ -10,11 +10,21 @@ const S = {
   accent: '#3b82f6',
 };
 
-const ICON_CAMPAIGN = (
+// Brand Lens: megaphone (awareness / brand campaigns)
+const ICON_BRAND = (
   <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="3" width="20" height="14" rx="2"/>
-    <path d="M8 21h8M12 17v4"/>
-    <path d="M7 8h2M7 12h10M13 8h4"/>
+    <path d="M3 11v2a1 1 0 0 0 1 1h3l6 4V6L7 10H4a1 1 0 0 0-1 1z"/>
+    <path d="M16.5 8.5a5 5 0 0 1 0 7"/>
+    <path d="M19 6a8.5 8.5 0 0 1 0 12"/>
+  </svg>
+);
+
+// Commerce Lens: shopping bag (marketplace / sales campaigns)
+const ICON_COMMERCE = (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/>
+    <path d="M3 6h18"/>
+    <path d="M16 10a4 4 0 0 1-8 0"/>
   </svg>
 );
 
@@ -40,7 +50,8 @@ const ICON_SUN = (
 );
 
 const TABS = [
-  { id: 'overview', label: 'Campaign Analysis', icon: ICON_CAMPAIGN },
+  { id: 'brand',    label: 'Brand Lens',    icon: ICON_BRAND },
+  { id: 'commerce', label: 'Commerce Lens', icon: ICON_COMMERCE },
 ];
 
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark }) {

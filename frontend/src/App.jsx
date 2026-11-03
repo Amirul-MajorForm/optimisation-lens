@@ -1,9 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard } from './api.js';
+import { fetchDashboard, fetchCommerce } from './api.js';
 import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
+import CommerceLens from './components/CommerceLens.jsx';
 import Sidebar from './components/Sidebar.jsx';
+
+const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.markets || {}));
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
@@ -15,7 +18,11 @@ export default function App() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('brand');
+  // Commerce Lens data is only fetched once the tab is opened
+  const [commerce, setCommerce] = useState(null); // { params, data }
+  const [commerceLoading, setCommerceLoading] = useState(false);
+  const [commerceError, setCommerceError] = useState(null);
 
   const theme = darkMode ? DARK : LIGHT;
 
@@ -80,6 +87,35 @@ export default function App() {
 
   useEffect(() => { load(); }, [load]);
 
+  const commerceAbortRef = useRef(null);
+
+  const loadCommerce = useCallback(async () => {
+    if (commerceAbortRef.current) commerceAbortRef.current.abort();
+    const controller = new AbortController();
+    commerceAbortRef.current = controller;
+
+    setCommerceLoading(true);
+    setCommerceError(null);
+    try {
+      const result = await fetchCommerce(fetchParams, controller.signal);
+      setCommerce({ params: fetchParams, data: result });
+    } catch (e) {
+      if (e.name !== 'AbortError') setCommerceError(e.message);
+    } finally {
+      if (commerceAbortRef.current === controller) setCommerceLoading(false);
+    }
+  }, [fetchParams]);
+
+  // Fetch commerce data when the tab is open and we don't have it for this date range yet
+  useEffect(() => {
+    if (activeTab === 'commerce' && commerce?.params !== fetchParams) loadCommerce();
+  }, [activeTab, fetchParams, commerce, loadCommerce]);
+
+  const handleRefresh = () => {
+    load();
+    if (activeTab === 'commerce') loadCommerce();
+  };
+
   return (
     <div style={{
       display: 'flex',
@@ -113,11 +149,16 @@ export default function App() {
         const marketData = data?.markets?.[market] ?? null;
         const marketName = data?.markets?.[market]?.marketName || '';
         // Markets with at least one campaign in the current pull (ID/TH only show when present)
+        const commerceData = commerce?.params === fetchParams ? commerce.data : null;
+        const hasBrand = m => ['tiktok', 'meta', 'google'].some(p => m?.[p]?.campaigns?.length > 0);
+        const hasSales = m => ['tiktok', 'meta', 'google'].some(p => m?.sales?.[p]?.campaigns?.length > 0);
         const activeMarkets = new Set(
-          Object.entries(data?.markets || {})
-            .filter(([, m]) => ['tiktok', 'meta', 'google'].some(p => m?.[p]?.campaigns?.length > 0))
-            .map(([code]) => code)
+          Object.keys(MARKET_CODES(data, commerceData)).filter(code => activeTab === 'commerce'
+            ? (commerceData?.markets?.[code]?.cpas?.length > 0 || hasSales(data?.markets?.[code]))
+            : hasBrand(data?.markets?.[code]))
         );
+        const isCommerce = activeTab === 'commerce';
+        const shownError = isCommerce ? (commerceError || error) : error;
         return (
           <>
             <Header
@@ -135,24 +176,33 @@ export default function App() {
               onCustomEndChange={setCustomEnd}
               onApplyCustom={handleApplyCustom}
               dateLabel={dateLabel}
-              onRefresh={load}
-              refreshing={loading}
+              onRefresh={handleRefresh}
+              refreshing={isCommerce ? (loading || commerceLoading) : loading}
             />
 
             <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 64px' }}>
-              {error && (
+              {shownError && (
                 <div style={{
                   background: darkMode ? '#3b0a0a' : '#fee2e2',
                   color: darkMode ? '#fca5a5' : '#991b1b',
                   border: `1px solid ${darkMode ? '#7f1d1d' : '#fecaca'}`,
                   padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 14,
                 }}>
-                  {error}
+                  {shownError}
                 </div>
               )}
 
-              {activeTab === 'overview' && (
+              {activeTab === 'brand' && (
                 <CampaignTable theme={theme} data={marketData} loading={loading} />
+              )}
+
+              {isCommerce && (
+                <CommerceLens
+                  theme={theme}
+                  commerce={commerceData?.markets?.[market]}
+                  sales={marketData?.sales}
+                  loading={commerceLoading || loading}
+                />
               )}
 
             </main>

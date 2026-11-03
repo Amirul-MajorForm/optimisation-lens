@@ -107,7 +107,7 @@ function KPIRow({ kpis, total, theme, currency }) {
   );
 }
 
-function PlatformSection({ platform, data, theme, loading }) {
+export function PlatformSection({ platform, label, data, theme, loading }) {
   const [sortKey, setSortKey] = useState('spend');
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
@@ -157,7 +157,7 @@ function PlatformSection({ platform, data, theme, loading }) {
           padding: '3px 10px', borderRadius: 6,
           fontFamily: "'Space Grotesk', sans-serif",
         }}>
-          {config.label}
+          {label ?? config.label}
         </span>
         <span style={{ fontSize: 13, color: theme.textMuted }}>
           {loading ? '…' : `${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''} · ${currency}`}
