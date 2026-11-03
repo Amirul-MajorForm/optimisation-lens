@@ -4,7 +4,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
-import { TEAM_ID, MARKETS, queryTMR, parsePlatformResult, getDateRange } from './tmr.js';
+import { TEAM_ID, MARKETS, ALL_ACCOUNTS, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -95,10 +95,7 @@ app.get('/api/dashboard', async (req, res) => {
       return res.status(500).json({ error: 'TMR_API_KEY not set in .env — add TMR_API_KEY=your_key' });
     }
 
-    const { dateRange: drParam = '7', startDate, endDate, market = 'sg' } = req.query;
-
-    const marketConfig = MARKETS[market];
-    if (!marketConfig) return res.status(400).json({ error: `Unknown market: ${market}` });
+    const { dateRange: drParam = '7', startDate, endDate } = req.query;
 
     let dateRangeObj;
     if (drParam === 'custom' && startDate && endDate) {
@@ -108,22 +105,13 @@ app.get('/api/dashboard', async (req, res) => {
       dateRangeObj = getDateRange(days);
     }
 
-    const cacheKey = `${market}_${dateRangeObj.startDate}_${dateRangeObj.endDate}`;
+    const cacheKey = `all_${dateRangeObj.startDate}_${dateRangeObj.endDate}`;
     const cached = getCached(cacheKey);
+    if (cached?.data)    return res.json(cached.data);
+    if (cached?.promise) return res.json(await cached.promise);
 
-    // Serve from cache if fresh
-    if (cached?.data) return res.json(cached.data);
-
-    // Deduplicate: if a fetch is already in-flight for this key, wait for it
-    if (cached?.promise) {
-      const result = await cached.promise;
-      return res.json(result);
-    }
-
-    const { accounts } = marketConfig;
-
-    const makeQuery = (accountId, metrics) => queryTMR(TMR_API_KEY, TEAM_ID, {
-      accounts: [accountId],
+    const makeQuery = (accounts, metrics) => queryTMR(TMR_API_KEY, TEAM_ID, {
+      accounts,
       dimensions: ['campaign_name'],
       metrics,
       dateRange: dateRangeObj,
@@ -133,26 +121,31 @@ app.get('/api/dashboard', async (req, res) => {
     const sleep = ms => new Promise(r => setTimeout(r, ms));
 
     const fetchPromise = (async () => {
-      const ttData   = await makeQuery(accounts.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach']);
+      // 3 requests total — one per platform, all markets combined
+      const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach']);
       await sleep(1500);
-      const metaData = await makeQuery(accounts.meta,   ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views']);
+      const metaRaw   = await makeQuery(ALL_ACCOUNTS.meta,   ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views']);
       await sleep(1500);
-      const googleData = accounts.google
-        ? await makeQuery(accounts.google, ['amount_spent', 'impressions', 'clicks'])
-        : null;
-      return {
-        tiktok: parsePlatformResult(ttData),
-        meta:   parsePlatformResult(metaData),
-        google: googleData ? parsePlatformResult(googleData) : { campaigns: [], total: {} },
-        dateRange: dateRangeObj,
-        market,
-        marketName: marketConfig.name,
-      };
+      const googleRaw = await makeQuery(ALL_ACCOUNTS.google, ['amount_spent', 'impressions', 'clicks']);
+
+      // Split each platform's rows into per-market buckets
+      const ttSplit     = splitByMarket(ttRaw);
+      const metaSplit   = splitByMarket(metaRaw);
+      const googleSplit = splitByMarket(googleRaw);
+
+      const markets = Object.fromEntries(
+        Object.entries(MARKETS).map(([code, cfg]) => [code, {
+          tiktok: parsePlatformResult({ data: ttSplit[code] }),
+          meta:   parsePlatformResult({ data: metaSplit[code] }),
+          google: parsePlatformResult({ data: googleSplit[code] }),
+          marketName: cfg.name,
+        }])
+      );
+
+      return { markets, dateRange: dateRangeObj };
     })();
 
-    // Store promise immediately so concurrent requests share it
     dashCache.set(cacheKey, { ts: Date.now(), promise: fetchPromise, data: null });
-
     const result = await fetchPromise;
     dashCache.set(cacheKey, { ts: Date.now(), data: result, promise: null });
 

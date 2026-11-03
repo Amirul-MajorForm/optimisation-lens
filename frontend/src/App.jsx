@@ -12,7 +12,7 @@ export default function App() {
   const [dateRange, setDateRange] = useState('7');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const [fetchParams, setFetchParams] = useState({ dateRange: '7', startDate: '', endDate: '', market: 'sg' });
+  const [fetchParams, setFetchParams] = useState({ dateRange: '7', startDate: '', endDate: '' });
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -45,17 +45,17 @@ export default function App() {
 
   const handleMarketChange = (val) => {
     setMarket(val);
-    setFetchParams(p => ({ ...p, market: val }));
+    // No fetch — market switching is client-side filtering
   };
 
   const handleDateRangeChange = (val) => {
     setDateRange(val);
-    if (val !== 'custom') setFetchParams(p => ({ ...p, dateRange: val, startDate: '', endDate: '' }));
+    if (val !== 'custom') setFetchParams({ dateRange: val, startDate: '', endDate: '' });
   };
 
   const handleApplyCustom = () => {
     if (customStart && customEnd && customStart <= customEnd) {
-      setFetchParams(p => ({ ...p, dateRange: 'custom', startDate: customStart, endDate: customEnd }));
+      setFetchParams({ dateRange: 'custom', startDate: customStart, endDate: customEnd });
     }
   };
 
@@ -109,49 +109,58 @@ export default function App() {
       />
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: theme.bg }}>
-        <Header
-          theme={theme}
-          darkMode={darkMode}
-          market={market}
-          onMarketChange={handleMarketChange}
-          marketName={data?.marketName || ''}
-          dateRange={dateRange}
-          onDateRangeChange={handleDateRangeChange}
-          customStart={customStart}
-          customEnd={customEnd}
-          onCustomStartChange={setCustomStart}
-          onCustomEndChange={setCustomEnd}
-          onApplyCustom={handleApplyCustom}
-          dateLabel={dateLabel}
-          onRefresh={load}
-          refreshing={loading}
-        />
-
-        <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 64px' }}>
-          {error && (
-            <div style={{
-              background: darkMode ? '#3b0a0a' : '#fee2e2',
-              color: darkMode ? '#fca5a5' : '#991b1b',
-              border: `1px solid ${darkMode ? '#7f1d1d' : '#fecaca'}`,
-              padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 14,
-            }}>
-              {error}
-            </div>
-          )}
-
-          {activeTab === 'overview' && (
-            <CampaignTable theme={theme} data={data} loading={loading} />
-          )}
-
-          {activeTab === 'search' && (
-            <AIBrief
+        {/* Derive the current market's slice from the full all-markets response */}
+      {(() => {
+        const marketData = data?.markets?.[market] ?? null;
+        const marketName = data?.markets?.[market]?.marketName || '';
+        return (
+          <>
+            <Header
               theme={theme}
-              data={data}
-              clientName={data?.marketName || 'OATSIDE'}
-              loading={loading}
+              darkMode={darkMode}
+              market={market}
+              onMarketChange={handleMarketChange}
+              marketName={marketName}
+              dateRange={dateRange}
+              onDateRangeChange={handleDateRangeChange}
+              customStart={customStart}
+              customEnd={customEnd}
+              onCustomStartChange={setCustomStart}
+              onCustomEndChange={setCustomEnd}
+              onApplyCustom={handleApplyCustom}
+              dateLabel={dateLabel}
+              onRefresh={load}
+              refreshing={loading}
             />
-          )}
-        </main>
+
+            <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 64px' }}>
+              {error && (
+                <div style={{
+                  background: darkMode ? '#3b0a0a' : '#fee2e2',
+                  color: darkMode ? '#fca5a5' : '#991b1b',
+                  border: `1px solid ${darkMode ? '#7f1d1d' : '#fecaca'}`,
+                  padding: '12px 16px', borderRadius: 10, marginBottom: 20, fontSize: 14,
+                }}>
+                  {error}
+                </div>
+              )}
+
+              {activeTab === 'overview' && (
+                <CampaignTable theme={theme} data={marketData} loading={loading} />
+              )}
+
+              {activeTab === 'search' && (
+                <AIBrief
+                  theme={theme}
+                  data={marketData}
+                  clientName={marketName || 'OATSIDE'}
+                  loading={loading}
+                />
+              )}
+            </main>
+          </>
+        );
+      })()}
       </div>
     </div>
   );

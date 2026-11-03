@@ -3,36 +3,30 @@ const TMR_BASE = process.env.TMR_BASE_URL || 'https://api.twominutereports.com/v
 export const TEAM_ID = process.env.TMR_TEAM_ID || '019d0ca3-ce95-7387-a650-5e055605107a';
 
 export const MARKETS = {
-  sg: {
-    name: 'OATSIDE SG',
-    accounts: {
-      tiktok: 'ttads_7216573742091091970',
-      meta:   'fads_act_764971328270854',
-      google: 'gadw_3685435931',
-    },
-  },
-  my: {
-    name: 'OATSIDE MY',
-    accounts: {
-      tiktok: 'ttads_7421836044171132944',
-      meta:   'fads_act_480865091512259',
-    },
-  },
-  ph: {
-    name: 'OATSIDE PH',
-    accounts: {
-      tiktok: 'ttads_7337602518762930178',
-      meta:   'fads_act_1073423930376728',
-    },
-  },
-  vn: {
-    name: 'OATSIDE VN',
-    accounts: {
-      tiktok: 'ttads_7539818342035931137',
-      meta:   'fads_act_2540917533074538',
-      google: 'gadw_8618833919',
-    },
-  },
+  sg: { name: 'OATSIDE SG' },
+  my: { name: 'OATSIDE MY' },
+  ph: { name: 'OATSIDE PH' },
+  vn: { name: 'OATSIDE VN' },
+};
+
+// All accounts per platform across every market (for single bulk query)
+export const ALL_ACCOUNTS = {
+  tiktok: [
+    'ttads_7216573742091091970', // SG
+    'ttads_7421836044171132944', // MY
+    'ttads_7337602518762930178', // PH
+    'ttads_7539818342035931137', // VN
+  ],
+  meta: [
+    'fads_act_764971328270854',  // SG
+    'fads_act_480865091512259',  // MY
+    'fads_act_1073423930376728', // PH
+    'fads_act_2540917533074538', // VN
+  ],
+  google: [
+    'gadw_3685435931',   // SG
+    'gadw_8618833919',   // VN
+  ],
 };
 
 export function getDateRange(days) {
@@ -62,6 +56,21 @@ export async function queryTMR(apiKey, teamId, body, attempt = 0) {
     throw new Error(msg);
   }
   return res.json();
+}
+
+// Detect market from campaign name prefix e.g. "SG_TikTok_..." → "sg"
+function detectMarket(campaignName) {
+  const m = (campaignName || '').match(/^([A-Za-z]{2})_/);
+  const key = m ? m[1].toLowerCase() : null;
+  return key && MARKETS[key] ? key : 'sg';
+}
+
+export function splitByMarket(tmrResponse) {
+  const buckets = Object.fromEntries(Object.keys(MARKETS).map(k => [k, []]));
+  for (const row of (tmrResponse?.data || [])) {
+    buckets[detectMarket(row.campaign_name)].push(row);
+  }
+  return buckets;
 }
 
 export function parsePlatformResult(tmrResponse) {
