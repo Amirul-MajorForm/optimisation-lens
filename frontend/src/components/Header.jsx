@@ -12,11 +12,13 @@ const MARKETS = [
   { value: 'my', label: 'MY' },
   { value: 'ph', label: 'PH' },
   { value: 'vn', label: 'VN' },
+  { value: 'id', label: 'ID', optional: true },
+  { value: 'th', label: 'TH', optional: true },
 ];
 
 export default function Header({
   theme, darkMode,
-  market, onMarketChange, marketName,
+  market, onMarketChange, marketName, activeMarkets,
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
   dateLabel, onRefresh, refreshing,
@@ -76,7 +78,7 @@ export default function Header({
 
       {/* Market tabs */}
       <div style={{ display: 'flex', gap: 4, background: theme.surfaceAlt, borderRadius: 9, padding: 3, border: `1px solid ${theme.border}` }}>
-        {MARKETS.map(m => (
+        {MARKETS.filter(m => !m.optional || m.value === market || activeMarkets?.has(m.value)).map(m => (
           <button
             key={m.value}
             onClick={() => onMarketChange(m.value)}

@@ -1,22 +1,34 @@
 import { useState } from 'react';
 import { fmt } from '../theme.js';
 
+// One shared column set so TikTok, Meta and Google tables line up exactly.
+// Metrics a platform does not report render as "—".
+const COLUMNS = [
+  { key: 'campaign_name', label: 'Campaign',    align: 'left',  grow: true, format: null },
+  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency' },
+  { key: 'impressions',   label: 'Impr.',       align: 'right', format: 'compact' },
+  { key: 'reach',         label: 'Reach',       align: 'right', format: 'compact' },
+  { key: 'video_views',   label: 'Video Views', align: 'right', format: 'compact' },
+  { key: 'clicks',        label: 'Clicks',      align: 'right', format: 'compact' },
+  { key: 'ctr',           label: 'CTR',         align: 'right', format: 'percent' },
+  { key: 'cpm',           label: 'CPM',         align: 'right', format: 'currency' },
+  { key: 'cpc',           label: 'CPC',         align: 'right', format: 'currency' },
+];
+const METRIC_COL_WIDTH = 104;
+const CAMPAIGN_COL_MIN = 300;
+const TABLE_MIN_WIDTH = CAMPAIGN_COL_MIN + METRIC_COL_WIDTH * (COLUMNS.length - 1);
+
+// TikTok reports video views as video_play_actions
+function cellValue(row, key) {
+  if (key === 'video_views') return row.video_views ?? row.video_play_actions;
+  return row[key];
+}
+
 const PLATFORM_CONFIG = {
   tiktok: {
     label: 'TikTok',
     color: '#010101',
     badge: { bg: '#f0f0f0', text: '#010101' },
-    columns: [
-      { key: 'campaign_name', label: 'Campaign', align: 'left', grow: true, format: null },
-      { key: 'spend',              label: 'Spend',        align: 'right', format: 'currency' },
-      { key: 'impressions',        label: 'Impr.',        align: 'right', format: 'compact' },
-      { key: 'video_play_actions', label: 'Video Views',  align: 'right', format: 'compact' },
-      { key: 'reach',              label: 'Reach',        align: 'right', format: 'compact' },
-      { key: 'clicks',             label: 'Clicks',       align: 'right', format: 'compact' },
-      { key: 'ctr',                label: 'CTR',          align: 'right', format: 'percent' },
-      { key: 'cpm',                label: 'CPM',          align: 'right', format: 'currency' },
-      { key: 'cpc',                label: 'CPC',          align: 'right', format: 'currency' },
-    ],
     kpis: [
       { key: 'spend',              label: 'Spend',        format: 'currency' },
       { key: 'impressions',        label: 'Impressions',  format: 'compact' },
@@ -30,17 +42,6 @@ const PLATFORM_CONFIG = {
     label: 'Meta',
     color: '#1877F2',
     badge: { bg: '#e8f0fe', text: '#1877F2' },
-    columns: [
-      { key: 'campaign_name', label: 'Campaign', align: 'left', grow: true, format: null },
-      { key: 'spend',       label: 'Spend',       align: 'right', format: 'currency' },
-      { key: 'impressions', label: 'Impr.',        align: 'right', format: 'compact' },
-      { key: 'reach',       label: 'Reach',        align: 'right', format: 'compact' },
-      { key: 'clicks',      label: 'Clicks',       align: 'right', format: 'compact' },
-      { key: 'ctr',         label: 'CTR',          align: 'right', format: 'percent' },
-      { key: 'cpm',         label: 'CPM',          align: 'right', format: 'currency' },
-      { key: 'cpc',         label: 'CPC',          align: 'right', format: 'currency' },
-      { key: 'video_views', label: 'Video Views',  align: 'right', format: 'compact' },
-    ],
     kpis: [
       { key: 'spend',       label: 'Spend',       format: 'currency' },
       { key: 'impressions', label: 'Impressions', format: 'compact' },
@@ -54,15 +55,6 @@ const PLATFORM_CONFIG = {
     label: 'Google',
     color: '#EA4335',
     badge: { bg: '#fce8e6', text: '#EA4335' },
-    columns: [
-      { key: 'campaign_name', label: 'Campaign', align: 'left', grow: true, format: null },
-      { key: 'spend',       label: 'Spend',  align: 'right', format: 'currency' },
-      { key: 'impressions', label: 'Impr.',  align: 'right', format: 'compact' },
-      { key: 'clicks',      label: 'Clicks', align: 'right', format: 'compact' },
-      { key: 'ctr',         label: 'CTR',    align: 'right', format: 'percent' },
-      { key: 'cpm',         label: 'CPM',    align: 'right', format: 'currency' },
-      { key: 'cpc',         label: 'CPC',    align: 'right', format: 'currency' },
-    ],
     kpis: [
       { key: 'spend',       label: 'Spend',       format: 'currency' },
       { key: 'impressions', label: 'Impressions', format: 'compact' },
@@ -120,13 +112,14 @@ function PlatformSection({ platform, data, theme, loading }) {
   const [expanded, setExpanded] = useState(true);
 
   const config = PLATFORM_CONFIG[platform];
+  const columns = COLUMNS;
   if (!config) return null;
 
   const { campaigns = [], total = {} } = data || {};
 
   const sorted = [...campaigns].sort((a, b) => {
-    const av = a[sortKey] ?? 0;
-    const bv = b[sortKey] ?? 0;
+    const av = cellValue(a, sortKey) ?? 0;
+    const bv = cellValue(b, sortKey) ?? 0;
     const cmp = typeof av === 'string' ? av.localeCompare(bv) : (Number(av) - Number(bv));
     return sortDir === 'asc' ? cmp : -cmp;
   });
@@ -182,10 +175,15 @@ function PlatformSection({ platform, data, theme, loading }) {
           <KPIRow kpis={config.kpis} total={total} theme={theme} />
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', minWidth: TABLE_MIN_WIDTH, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
+              <colgroup>
+                {columns.map(col => (
+                  <col key={col.key} style={col.grow ? undefined : { width: METRIC_COL_WIDTH }} />
+                ))}
+              </colgroup>
               <thead>
                 <tr style={{ background: theme.surfaceAlt }}>
-                  {config.columns.map(col => (
+                  {columns.map(col => (
                     <th
                       key={col.key}
                       onClick={() => handleSort(col.key)}
@@ -214,11 +212,11 @@ function PlatformSection({ platform, data, theme, loading }) {
               </thead>
               <tbody>
                 {loading
-                  ? Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} cols={config.columns.length} />)
+                  ? Array.from({ length: 3 }).map((_, i) => <SkeletonRow key={i} cols={columns.length} />)
                   : sorted.length === 0
                     ? (
                       <tr>
-                        <td colSpan={config.columns.length} style={{ padding: '24px', textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
+                        <td colSpan={columns.length} style={{ padding: '24px', textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>
                           No campaign data for this period
                         </td>
                       </tr>
@@ -230,8 +228,8 @@ function PlatformSection({ platform, data, theme, loading }) {
                         onMouseEnter={e => { e.currentTarget.style.background = theme.surfaceHover; }}
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                       >
-                        {config.columns.map(col => {
-                          const val = row[col.key];
+                        {columns.map(col => {
+                          const val = cellValue(row, col.key);
                           const display = col.format == null
                             ? (val || '—')
                             : (val == null || val === '' ? '—' : fmt(val, col.format));
@@ -244,10 +242,9 @@ function PlatformSection({ platform, data, theme, loading }) {
                                 textAlign: col.align,
                                 color: col.key === 'campaign_name' ? theme.textPrimary : theme.textSecondary,
                                 fontWeight: col.key === 'campaign_name' ? 500 : 400,
-                                maxWidth: col.grow ? 320 : undefined,
-                                overflow: col.grow ? 'hidden' : undefined,
-                                textOverflow: col.grow ? 'ellipsis' : undefined,
-                                whiteSpace: col.grow ? 'nowrap' : 'nowrap',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
                               }}
                             >
                               {display}

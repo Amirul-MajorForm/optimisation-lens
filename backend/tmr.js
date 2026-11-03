@@ -7,6 +7,8 @@ export const MARKETS = {
   my: { name: 'OATSIDE MY' },
   ph: { name: 'OATSIDE PH' },
   vn: { name: 'OATSIDE VN' },
+  id: { name: 'OATSIDE ID' },
+  th: { name: 'OATSIDE TH' },
 };
 
 // All accounts per platform across every market (for single bulk query)
@@ -16,12 +18,16 @@ export const ALL_ACCOUNTS = {
     'ttads_7421836044171132944', // MY
     'ttads_7337602518762930178', // PH
     'ttads_7539818342035931137', // VN
+    'ttads_7558728389196365825', // ID
+    'ttads_7601715326036017169', // TH
   ],
   meta: [
     'fads_act_764971328270854',  // SG
     'fads_act_480865091512259',  // MY
     'fads_act_1073423930376728', // PH
     'fads_act_2540917533074538', // VN
+    'fads_act_360540913050861',  // ID
+    'fads_act_392347893765489',  // TH
   ],
   google: [
     'gadw_3685435931',   // SG
@@ -58,11 +64,17 @@ export async function queryTMR(apiKey, teamId, body, attempt = 0) {
   return res.json();
 }
 
-// Detect market from campaign name prefix e.g. "SG_TikTok_..." → "sg"
+// Detect market from the first known market code in the campaign name,
+// e.g. "SG_TikTok_..." or "(cancelled)TH_PP-All_..." -> "sg" / "th".
+// Falls back to SG when no known code is found.
 function detectMarket(campaignName) {
-  const m = (campaignName || '').match(/^([A-Za-z]{2})_/);
-  const key = m ? m[1].toLowerCase() : null;
-  return key && MARKETS[key] ? key : 'sg';
+  const re = /(?:^|[^A-Za-z])([A-Za-z]{2})_/g;
+  let m;
+  while ((m = re.exec(campaignName || '')) !== null) {
+    const key = m[1].toLowerCase();
+    if (MARKETS[key]) return key;
+  }
+  return 'sg';
 }
 
 export function splitByMarket(tmrResponse) {

@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, generateAIBrief, fetchStyleRef } from './api.js';
+import { fetchDashboard } from './api.js';
 import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
 import Sidebar from './components/Sidebar.jsx';
-import AIBrief from './components/AIBrief.jsx';
 
 export default function App() {
   const [darkMode, setDarkMode] = useState(false);
@@ -113,6 +112,12 @@ export default function App() {
       {(() => {
         const marketData = data?.markets?.[market] ?? null;
         const marketName = data?.markets?.[market]?.marketName || '';
+        // Markets with at least one campaign in the current pull (ID/TH only show when present)
+        const activeMarkets = new Set(
+          Object.entries(data?.markets || {})
+            .filter(([, m]) => ['tiktok', 'meta', 'google'].some(p => m?.[p]?.campaigns?.length > 0))
+            .map(([code]) => code)
+        );
         return (
           <>
             <Header
@@ -121,6 +126,7 @@ export default function App() {
               market={market}
               onMarketChange={handleMarketChange}
               marketName={marketName}
+              activeMarkets={activeMarkets}
               dateRange={dateRange}
               onDateRangeChange={handleDateRangeChange}
               customStart={customStart}
@@ -149,14 +155,6 @@ export default function App() {
                 <CampaignTable theme={theme} data={marketData} loading={loading} />
               )}
 
-              {activeTab === 'search' && (
-                <AIBrief
-                  theme={theme}
-                  data={marketData}
-                  clientName={marketName || 'OATSIDE'}
-                  loading={loading}
-                />
-              )}
             </main>
           </>
         );
