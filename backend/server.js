@@ -41,7 +41,9 @@ async function cached(key, fetchFn) {
 
 function resolveDateRange(query) {
   const { dateRange: drParam = '7', startDate, endDate } = query;
-  if (drParam === 'custom' && startDate && endDate) return { startDate, endDate };
+  // Custom ranges and calendar presets (MTD, QTD, this/last month) arrive as explicit dates
+  const isDate = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '');
+  if (isDate(startDate) && isDate(endDate) && startDate <= endDate) return { startDate, endDate };
   const days = Math.min(Math.max(parseInt(drParam) || 7, 1), 365);
   return getDateRange(days);
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
 import { fetchDashboard, fetchCommerce } from './api.js';
+import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
 import CommerceLens from './components/CommerceLens.jsx';
@@ -27,7 +28,7 @@ export default function App() {
   const theme = darkMode ? DARK : LIGHT;
 
   function computeDateLabel(params) {
-    if (params.dateRange === 'custom' && params.startDate && params.endDate) {
+    if (params.startDate && params.endDate) {
       return `${fmtDateStr(params.startDate)} – ${fmtDateStr(params.endDate)}`;
     }
     const days = parseInt(params.dateRange);
@@ -56,7 +57,9 @@ export default function App() {
 
   const handleDateRangeChange = (val) => {
     setDateRange(val);
-    if (val !== 'custom') setFetchParams({ dateRange: val, startDate: '', endDate: '' });
+    if (val === 'custom') return;
+    const preset = resolvePreset(val);
+    setFetchParams(preset ? { dateRange: val, ...preset } : { dateRange: val, startDate: '', endDate: '' });
   };
 
   const handleApplyCustom = () => {

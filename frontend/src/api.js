@@ -1,6 +1,6 @@
 async function getJSON(path, { dateRange, startDate, endDate }, signal) {
   const params = new URLSearchParams({ dateRange: String(dateRange) });
-  if (dateRange === 'custom' && startDate && endDate) {
+  if (startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
   }

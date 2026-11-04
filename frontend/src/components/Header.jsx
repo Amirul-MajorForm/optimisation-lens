@@ -4,6 +4,10 @@ const DATE_RANGES = [
   { value: '30',     label: 'Last 30 days' },
   { value: '60',     label: 'Last 60 days' },
   { value: '90',     label: 'Last 90 days' },
+  { value: 'mtd',        label: 'Month to date' },
+  { value: 'qtd',        label: 'Quarter to date' },
+  { value: 'this_month', label: 'This month' },
+  { value: 'last_month', label: 'Last month' },
   { value: 'custom', label: 'Custom range…' },
 ];
 
