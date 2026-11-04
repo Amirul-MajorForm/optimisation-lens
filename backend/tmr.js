@@ -38,17 +38,20 @@ export const ALL_ACCOUNTS = {
   ],
 };
 
-// Meta CPAS (collaborative / marketplace) accounts, shown under Commerce Lens.
+// Every Meta account with "CPAS" in its name, shown under Commerce Lens.
 // Grouped by billing currency so every row in one TMR request shares a currency:
 //   local: billed in the market's own Meta currency (see MARKETS[x].currency.meta)
 //   SGD:   billed in SGD even though the market is outside Singapore
-// Not included (no data ever in TMR): SG Redmart act_335142002450041, PH Lazada act_2011132199258393.
+// SG Redmart and PH Lazada have never had data in TMR, so their currency is
+// unconfirmed; they are assumed to bill in local currency (SGD / PHP).
 export const CPAS_ACCOUNTS = {
   local: [
     'fads_act_1925389034916546', // SG Shopee (SGD)
     'fads_act_674743694682068',  // SG Shopee - DNU (SGD, historical)
+    'fads_act_335142002450041',  // SG Redmart (assumed SGD, no data yet)
     'fads_act_1001057058029561', // MY Shopee (MYR)
     'fads_act_1324603498206088', // PH Shopee (PHP)
+    'fads_act_2011132199258393', // PH Lazada (assumed PHP, no data yet)
     'fads_act_1196047278954896', // VN Shopee (VND)
     'fads_act_343672155283730',  // ID Lazada (IDR)
     'fads_act_1437746287146983', // ID Shopee (IDR)
@@ -63,10 +66,11 @@ export const CPAS_ACCOUNTS = {
   ],
 };
 
-// Brand-account campaigns with the word "Sales" belong under Commerce Lens.
-// Underscores count as separators, e.g. "SG_Meta_Sales_Oct" matches.
-export function isSalesCampaign(name) {
-  return /(?:^|[^a-z])sales(?:[^a-z]|$)/i.test(name || '');
+// Brand-account campaigns (any platform) containing "_Sales_" or "_Conversion_"
+// belong under Commerce Lens. Case-insensitive; the underscores are required,
+// so "_Conversions_" (plural) or a name ending in "_Sales" does not match.
+export function isCommerceCampaign(name) {
+  return /_(sales|conversion)_/i.test(name || '');
 }
 
 export function getDateRange(days) {

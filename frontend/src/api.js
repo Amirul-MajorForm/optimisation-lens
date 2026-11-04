@@ -12,7 +12,7 @@ async function getJSON(path, { dateRange, startDate, endDate }, signal) {
   return res.json();
 }
 
-// Brand Lens: non-CPAS accounts (plus "Sales" campaigns split out for Commerce Lens)
+// Brand Lens: non-CPAS accounts (plus _Sales_ / _Conversion_ campaigns split out for Commerce Lens)
 export const fetchDashboard = (params, signal) => getJSON('/api/dashboard', params, signal);
 
 // Commerce Lens: Meta CPAS accounts, only requested when the tab is opened

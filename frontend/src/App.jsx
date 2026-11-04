@@ -151,10 +151,10 @@ export default function App() {
         // Markets with at least one campaign in the current pull (ID/TH only show when present)
         const commerceData = commerce?.params === fetchParams ? commerce.data : null;
         const hasBrand = m => ['tiktok', 'meta', 'google'].some(p => m?.[p]?.campaigns?.length > 0);
-        const hasSales = m => ['tiktok', 'meta', 'google'].some(p => m?.sales?.[p]?.campaigns?.length > 0);
+        const hasCommerceCampaigns = m => ['tiktok', 'meta', 'google'].some(p => m?.commerceCampaigns?.[p]?.campaigns?.length > 0);
         const activeMarkets = new Set(
           Object.keys(MARKET_CODES(data, commerceData)).filter(code => activeTab === 'commerce'
-            ? (commerceData?.markets?.[code]?.cpas?.length > 0 || hasSales(data?.markets?.[code]))
+            ? (commerceData?.markets?.[code]?.cpas?.length > 0 || hasCommerceCampaigns(data?.markets?.[code]))
             : hasBrand(data?.markets?.[code]))
         );
         const isCommerce = activeTab === 'commerce';
@@ -200,7 +200,7 @@ export default function App() {
                 <CommerceLens
                   theme={theme}
                   commerce={commerceData?.markets?.[market]}
-                  sales={marketData?.sales}
+                  campaigns={marketData?.commerceCampaigns}
                   loading={commerceLoading || loading}
                 />
               )}

@@ -4,7 +4,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
-import { TEAM_ID, MARKETS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isSalesCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
+import { TEAM_ID, MARKETS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -68,8 +68,9 @@ app.use(express.json());
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 
-// Brand Lens: non-CPAS accounts. Campaigns named "Sales" are split out into
-// `sales` so Commerce Lens can show them without another TMR request.
+// Brand Lens: non-CPAS accounts. Campaigns containing "_Sales_" or "_Conversion_"
+// are split out into `commerceCampaigns` so Commerce Lens can show them
+// without another TMR request.
 app.get('/api/dashboard', async (req, res) => {
   try {
     if (!requireKey(res)) return;
@@ -86,14 +87,14 @@ app.get('/api/dashboard', async (req, res) => {
 
       const markets = Object.fromEntries(
         Object.entries(MARKETS).map(([code, cfg]) => {
-          const brand = {}, sales = {};
+          const brand = {}, commerceCampaigns = {};
           for (const platform of ['tiktok', 'meta', 'google']) {
             const rows = split[platform][code];
             const currency = cfg.currency[platform];
-            brand[platform] = { ...parsePlatformResult({ data: rows.filter(r => !isSalesCampaign(r.campaign_name)) }), currency };
-            sales[platform] = { ...parsePlatformResult({ data: rows.filter(r =>  isSalesCampaign(r.campaign_name)) }), currency };
+            brand[platform] = { ...parsePlatformResult({ data: rows.filter(r => !isCommerceCampaign(r.campaign_name)) }), currency };
+            commerceCampaigns[platform] = { ...parsePlatformResult({ data: rows.filter(r =>  isCommerceCampaign(r.campaign_name)) }), currency };
           }
-          return [code, { ...brand, sales, marketName: cfg.name }];
+          return [code, { ...brand, commerceCampaigns, marketName: cfg.name }];
         })
       );
 
