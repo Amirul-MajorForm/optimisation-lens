@@ -81,16 +81,25 @@ export function getDateRange(days) {
 }
 
 // All TMR requests (Brand and Commerce, any user) go through one queue so they
-// never run concurrently and start at least TMR_GAP_MS apart (avoids 429s).
+// never run concurrently, start at least TMR_GAP_MS apart, and stay under TMR's
+// run-query limit of 15 requests per minute (avoids 429s).
 const TMR_GAP_MS = 1500;
+const TMR_MAX_PER_MIN = 14;
 let tmrQueue = Promise.resolve();
 let lastStart = 0;
+const recentStarts = [];
 
 export function queryTMR(apiKey, teamId, body) {
   const run = tmrQueue.then(async () => {
     const wait = lastStart + TMR_GAP_MS - Date.now();
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    while (recentStarts.length && Date.now() - recentStarts[0] > 60000) recentStarts.shift();
+    if (recentStarts.length >= TMR_MAX_PER_MIN) {
+      await new Promise(r => setTimeout(r, recentStarts[0] + 60000 - Date.now() + 50));
+      recentStarts.shift();
+    }
     lastStart = Date.now();
+    recentStarts.push(lastStart);
     return queryTMRDirect(apiKey, teamId, body);
   });
   tmrQueue = run.catch(() => {}); // keep the queue going after a failure
@@ -147,6 +156,8 @@ export function parsePlatformResult(tmrResponse) {
       Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v])
     );
     if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
+    // One landing-page-view field across platforms (TikTok / Meta name it differently)
+    if (out.landing_page_views == null) out.landing_page_views = out.total_landing_page_view ?? out.website_fb_landing_page_views;
     // Derive rate metrics per row (TMR doesn't return these at row level)
     const sp  = parseFloat(out.spend) || 0;
     const imp = parseFloat(out.impressions) || 0;
@@ -174,6 +185,9 @@ export function parsePlatformResult(tmrResponse) {
     video_play_actions: sum('video_play_actions'),
     reach:              sum('reach'),
     video_views:        sum('video_views'),
+    landing_page_views: sum('landing_page_views'),
+    video_watched_6s:   sum('video_watched_6s'),
+    video_thruplay_watched_actions: sum('video_thruplay_watched_actions'),
     ctr:  impTotal   > 0 ? (clickTotal / impTotal) * 100        : 0,
     cpm:  impTotal   > 0 ? (spendTotal / impTotal) * 1000       : 0,
     cpc:  clickTotal > 0 ?  spendTotal / clickTotal             : 0,

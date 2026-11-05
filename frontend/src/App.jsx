@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
 import CommerceLens from './components/CommerceLens.jsx';
+import GoalTracker from './components/GoalTracker.jsx';
 import Sidebar from './components/Sidebar.jsx';
 
 const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.markets || {}));
@@ -24,6 +25,10 @@ export default function App() {
   const [commerce, setCommerce] = useState(null); // { params, data }
   const [commerceLoading, setCommerceLoading] = useState(false);
   const [commerceError, setCommerceError] = useState(null);
+  // Goal tracking (Brand Lens) — loaded per date range, after/alongside brand data
+  const [goals, setGoals] = useState(null); // { params, data }
+  const [goalsLoading, setGoalsLoading] = useState(false);
+  const [goalsError, setGoalsError] = useState(null);
 
   const theme = darkMode ? DARK : LIGHT;
 
@@ -114,8 +119,32 @@ export default function App() {
     if (activeTab === 'commerce' && commerce?.params !== fetchParams) loadCommerce();
   }, [activeTab, fetchParams, commerce, loadCommerce]);
 
+  const goalsAbortRef = useRef(null);
+
+  const loadGoals = useCallback(async () => {
+    if (goalsAbortRef.current) goalsAbortRef.current.abort();
+    const controller = new AbortController();
+    goalsAbortRef.current = controller;
+
+    setGoalsLoading(true);
+    setGoalsError(null);
+    try {
+      const result = await fetchGoals(fetchParams, controller.signal);
+      setGoals({ params: fetchParams, data: result });
+    } catch (e) {
+      if (e.name !== 'AbortError') setGoalsError(e.message);
+    } finally {
+      if (goalsAbortRef.current === controller) setGoalsLoading(false);
+    }
+  }, [fetchParams]);
+
+  useEffect(() => {
+    if (activeTab === 'brand' && goals?.params !== fetchParams) loadGoals();
+  }, [activeTab, fetchParams, goals, loadGoals]);
+
   const handleRefresh = () => {
     load();
+    if (activeTab === 'brand') loadGoals();
     if (activeTab === 'commerce') loadCommerce();
   };
 
@@ -196,7 +225,18 @@ export default function App() {
               )}
 
               {activeTab === 'brand' && (
-                <CampaignTable theme={theme} data={marketData} loading={loading} />
+                <>
+                  <GoalTracker
+                    theme={theme}
+                    darkMode={darkMode}
+                    goals={goals?.params === fetchParams ? goals.data?.markets?.[market] : null}
+                    loading={goalsLoading}
+                    error={goalsError}
+                    previousRange={goals?.data?.previousRange}
+                    previousError={goals?.data?.previousError}
+                  />
+                  <CampaignTable theme={theme} data={marketData} loading={loading} />
+                </>
               )}
 
               {isCommerce && (

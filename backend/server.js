@@ -4,6 +4,7 @@ import cors from 'cors';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
+import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { TEAM_ID, MARKETS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -59,8 +60,11 @@ const makeQuery = (accounts, metrics, dateRange) => queryTMR(TMR_API_KEY, TEAM_I
 // TMR field ids: amount_spent, impressions and clicks are common fields shared by
 // every connector; platform-specific fields must carry the connector prefix
 // (e.g. ttads_video_play_actions). parsePlatformResult strips the prefix again.
-const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views'];
-const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach'];
+// Landing page views and quality video views feed goal tracking (CPLV, CPV).
+const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views',
+                        'fads_website_fb_landing_page_views', 'fads_video_thruplay_watched_actions'];
+const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach',
+                        'ttads_total_landing_page_view', 'ttads_video_watched_6s'];
 const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks'];
 
 function requireKey(res) {
@@ -78,39 +82,68 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 // Brand Lens: non-CPAS accounts. Campaigns containing "_Sales_" or "_Conversion_"
 // are split out into `commerceCampaigns` so Commerce Lens can show them
 // without another TMR request.
+// Brand data for one date range (3 TMR requests, cached and shared by
+// /api/dashboard and /api/goals).
+function fetchBrand(dateRangeObj) {
+  return cached(`brand_${dateRangeObj.startDate}_${dateRangeObj.endDate}`, async () => {
+    // 3 requests total — one per platform, all markets combined (queued in tmr.js)
+    const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, TIKTOK_METRICS, dateRangeObj);
+    const metaRaw   = await makeQuery(ALL_ACCOUNTS.meta, META_METRICS, dateRangeObj);
+    const googleRaw = await makeQuery(ALL_ACCOUNTS.google, GOOGLE_METRICS, dateRangeObj);
+
+    // Split each platform's rows into per-market buckets
+    const split = { tiktok: splitByMarket(ttRaw), meta: splitByMarket(metaRaw), google: splitByMarket(googleRaw) };
+
+    const markets = Object.fromEntries(
+      Object.entries(MARKETS).map(([code, cfg]) => {
+        const brand = {}, commerceCampaigns = {};
+        for (const platform of ['tiktok', 'meta', 'google']) {
+          const rows = split[platform][code];
+          const currency = cfg.currency[platform];
+          brand[platform] = { ...parsePlatformResult({ data: rows.filter(r => !isCommerceCampaign(r.campaign_name)) }), currency };
+          commerceCampaigns[platform] = { ...parsePlatformResult({ data: rows.filter(r =>  isCommerceCampaign(r.campaign_name)) }), currency };
+        }
+        return [code, { ...brand, commerceCampaigns, marketName: cfg.name }];
+      })
+    );
+
+    return { markets, dateRange: dateRangeObj };
+  });
+}
+
 app.get('/api/dashboard', async (req, res) => {
   try {
     if (!requireKey(res)) return;
-    const dateRangeObj = resolveDateRange(req.query);
-
-    const result = await cached(`brand_${dateRangeObj.startDate}_${dateRangeObj.endDate}`, async () => {
-      // 3 requests total — one per platform, all markets combined (queued in tmr.js)
-      const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, TIKTOK_METRICS, dateRangeObj);
-      const metaRaw   = await makeQuery(ALL_ACCOUNTS.meta, META_METRICS, dateRangeObj);
-      const googleRaw = await makeQuery(ALL_ACCOUNTS.google, GOOGLE_METRICS, dateRangeObj);
-
-      // Split each platform's rows into per-market buckets
-      const split = { tiktok: splitByMarket(ttRaw), meta: splitByMarket(metaRaw), google: splitByMarket(googleRaw) };
-
-      const markets = Object.fromEntries(
-        Object.entries(MARKETS).map(([code, cfg]) => {
-          const brand = {}, commerceCampaigns = {};
-          for (const platform of ['tiktok', 'meta', 'google']) {
-            const rows = split[platform][code];
-            const currency = cfg.currency[platform];
-            brand[platform] = { ...parsePlatformResult({ data: rows.filter(r => !isCommerceCampaign(r.campaign_name)) }), currency };
-            commerceCampaigns[platform] = { ...parsePlatformResult({ data: rows.filter(r =>  isCommerceCampaign(r.campaign_name)) }), currency };
-          }
-          return [code, { ...brand, commerceCampaigns, marketName: cfg.name }];
-        })
-      );
-
-      return { markets, dateRange: dateRangeObj };
-    });
-
-    res.json(result);
+    res.json(await fetchBrand(resolveDateRange(req.query)));
   } catch (err) {
     console.error('[dashboard error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Goal tracking (Brand Lens): goals from the published MajorPace sheet, scored
+// against the selected range and the equal-length period before it.
+app.get('/api/goals', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const range = resolveDateRange(req.query);
+    const prevRange = previousRange(range);
+
+    const sheet = await cached('goal_sheet', loadGoalSheet);
+    const current = await fetchBrand(range);
+    // Previous period is only for the trend; goals still show if it fails
+    let previous = null, previousError = null;
+    try { previous = await fetchBrand(prevRange); }
+    catch (err) { previousError = err.message; console.error('[goals previous period]', err.message); }
+
+    res.json({
+      markets: scoreGoals(sheet, current, previous, range),
+      dateRange: range,
+      previousRange: prevRange,
+      previousError,
+    });
+  } catch (err) {
+    console.error('[goals error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
