@@ -30,7 +30,7 @@ function fmtFlight({ start, end }) {
   return start || end ? `${f(start)} – ${f(end)}` : '';
 }
 
-function GoalCard({ g, theme, darkMode }) {
+function GoalCard({ g, theme, darkMode, trendPending }) {
   const good = darkMode ? '#34d399' : '#047857';
   const bad = darkMode ? '#f87171' : '#b91c1c';
   const goodBg = darkMode ? 'rgba(52,211,153,0.12)' : '#ecfdf5';
@@ -107,6 +107,8 @@ function GoalCard({ g, theme, darkMode }) {
             </span>
             <span>vs previous period ({fmtValue(g.previous, g.currency, g.isMoney)})</span>
           </>
+        ) : trendPending && g.actual != null ? (
+          <span style={{ color: theme.textMuted, animation: 'kpi-pulse 1.6s ease-in-out infinite' }}>Loading trend vs previous period…</span>
         ) : g.actual != null ? (
           <span style={{ color: theme.textMuted }}>No delivery in previous period</span>
         ) : null}
@@ -119,7 +121,8 @@ function GoalCard({ g, theme, darkMode }) {
   );
 }
 
-export default function GoalTracker({ theme, darkMode, goals, loading, error, previousRange, previousError }) {
+export default function GoalTracker({ theme, darkMode, goals, loading, error, previousRange, previousError, trendLoaded }) {
+  const trendPending = !trendLoaded && !previousError;
   const [expanded, setExpanded] = useState(true);
   const list = goals || [];
   const scored = list.filter(g => g.onTrack != null);
@@ -140,7 +143,7 @@ export default function GoalTracker({ theme, darkMode, goals, loading, error, pr
         </span>
         <span style={{ fontSize: 13, color: theme.textMuted }}>
           {loading ? 'Loading goals…' : error ? '' : `${onTrack} of ${scored.length} on track`}
-          {!loading && previousRange && ` · trend vs ${fmtD(previousRange.startDate)} – ${fmtD(previousRange.endDate)}`}
+          {!loading && previousRange && (trendPending ? ' · loading trend…' : ` · trend vs ${fmtD(previousRange.startDate)} – ${fmtD(previousRange.endDate)}`)}
         </span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
           style={{ marginLeft: 'auto', transition: 'transform 0.2s', transform: expanded ? 'none' : 'rotate(-90deg)' }}>
@@ -163,7 +166,7 @@ export default function GoalTracker({ theme, darkMode, goals, loading, error, pr
           )}
           {list.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, opacity: loading ? 0.6 : 1 }}>
-              {list.map(g => <GoalCard key={`${g.platform}-${g.campaign}`} g={g} theme={theme} darkMode={darkMode} />)}
+              {list.map(g => <GoalCard key={`${g.platform}-${g.campaign}`} g={g} theme={theme} darkMode={darkMode} trendPending={trendPending} />)}
             </div>
           )}
         </div>

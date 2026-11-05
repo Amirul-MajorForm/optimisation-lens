@@ -106,12 +106,29 @@ export function queryTMR(apiKey, teamId, body) {
   return run;
 }
 
+// TMR stops a query after ~60s (HTTP 504); give up slightly later so a stalled
+// connection can never block the request queue (and the cache) indefinitely.
+const TMR_TIMEOUT_MS = Number(process.env.TMR_TIMEOUT_MS) || 75000;
+
 async function queryTMRDirect(apiKey, teamId, body, attempt = 0) {
-  const res = await fetch(`${TMR_BASE}/teams/${teamId}/data/run-query`, {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  const t0 = Date.now();
+  const label = `${body.accounts?.[0]?.split('_')[0]} x${body.accounts?.length} ${body.dateRange?.startDate}..${body.dateRange?.endDate}`;
+  let res;
+  try {
+    res = await fetch(`${TMR_BASE}/teams/${teamId}/data/run-query`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(TMR_TIMEOUT_MS),
+    });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      console.error(`[TMR] timeout after ${TMR_TIMEOUT_MS / 1000}s: ${label}`);
+      throw new Error(`Two Minute Reports did not respond within ${TMR_TIMEOUT_MS / 1000}s — try again or pick a shorter date range`);
+    }
+    throw err;
+  }
+  console.log(`[TMR] ${res.status} in ${((Date.now() - t0) / 1000).toFixed(1)}s: ${label}`);
   if (res.status === 429 && attempt < 3) {
     const wait = (attempt + 1) * 12000; // 12s, 24s, 36s
     console.warn(`[TMR] 429 rate limit, retrying in ${wait}ms (attempt ${attempt + 1})`);

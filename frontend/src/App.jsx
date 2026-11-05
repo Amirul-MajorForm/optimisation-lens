@@ -126,6 +126,7 @@ export default function App() {
     const controller = new AbortController();
     goalsAbortRef.current = controller;
 
+    // Step 1: goals vs target (fast, uses the same data as the tables)
     setGoalsLoading(true);
     setGoalsError(null);
     try {
@@ -133,8 +134,19 @@ export default function App() {
       setGoals({ params: fetchParams, data: result });
     } catch (e) {
       if (e.name !== 'AbortError') setGoalsError(e.message);
-    } finally {
       if (goalsAbortRef.current === controller) setGoalsLoading(false);
+      return;
+    }
+    if (goalsAbortRef.current === controller) setGoalsLoading(false);
+
+    // Step 2: previous-period trend (slower), fills in when ready
+    try {
+      const withTrend = await fetchGoals(fetchParams, controller.signal, { trend: true });
+      if (goalsAbortRef.current === controller) setGoals({ params: fetchParams, data: withTrend });
+    } catch (e) {
+      if (e.name !== 'AbortError' && goalsAbortRef.current === controller) {
+        setGoals(g => g && { ...g, data: { ...g.data, previousError: e.message } });
+      }
     }
   }, [fetchParams]);
 
@@ -234,6 +246,7 @@ export default function App() {
                     error={goalsError}
                     previousRange={goals?.data?.previousRange}
                     previousError={goals?.data?.previousError}
+                    trendLoaded={goals?.params === fetchParams && !!goals.data?.trendLoaded}
                   />
                   <CampaignTable theme={theme} data={marketData} loading={loading} />
                 </>

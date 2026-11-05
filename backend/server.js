@@ -19,12 +19,12 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 min
 function getCached(key) {
   const e = dashCache.get(key);
   if (!e) return null;
-  if (Date.now() - e.ts > CACHE_TTL) { dashCache.delete(key); return null; }
+  if (Date.now() - e.ts > (e.ttl ?? CACHE_TTL)) { dashCache.delete(key); return null; }
   return e;
 }
 
 // Cache results for CACHE_TTL and share one in-flight fetch between callers
-async function cached(key, fetchFn) {
+async function cached(key, fetchFn, ttl = CACHE_TTL) {
   const hit = getCached(key);
   if (hit?.data)    return hit.data;
   if (hit?.promise) return hit.promise;
@@ -32,7 +32,7 @@ async function cached(key, fetchFn) {
   dashCache.set(key, { ts: Date.now(), promise, data: null });
   try {
     const data = await promise;
-    dashCache.set(key, { ts: Date.now(), data, promise: null });
+    dashCache.set(key, { ts: Date.now(), data, promise: null, ttl });
     return data;
   } catch (err) {
     dashCache.delete(key);
@@ -84,7 +84,7 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 // without another TMR request.
 // Brand data for one date range (3 TMR requests, cached and shared by
 // /api/dashboard and /api/goals).
-function fetchBrand(dateRangeObj) {
+function fetchBrand(dateRangeObj, ttl = CACHE_TTL) {
   return cached(`brand_${dateRangeObj.startDate}_${dateRangeObj.endDate}`, async () => {
     // 3 requests total — one per platform, all markets combined (queued in tmr.js)
     const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, TIKTOK_METRICS, dateRangeObj);
@@ -108,7 +108,7 @@ function fetchBrand(dateRangeObj) {
     );
 
     return { markets, dateRange: dateRangeObj };
-  });
+  }, ttl);
 }
 
 app.get('/api/dashboard', async (req, res) => {
@@ -122,24 +122,33 @@ app.get('/api/dashboard', async (req, res) => {
 });
 
 // Goal tracking (Brand Lens): goals from the published MajorPace sheet, scored
-// against the selected range and the equal-length period before it.
+// against the selected range. Without ?trend=1 it only needs the current-period
+// brand data (shared with /api/dashboard), so it returns as soon as the tables
+// can. With ?trend=1 it also fetches the equal-length previous period
+// (3 more TMR requests, cached for an hour since that data is historical).
+const PREVIOUS_PERIOD_TTL = 60 * 60 * 1000;
+
 app.get('/api/goals', async (req, res) => {
   try {
     if (!requireKey(res)) return;
     const range = resolveDateRange(req.query);
     const prevRange = previousRange(range);
+    const withTrend = req.query.trend === '1';
 
-    const sheet = await cached('goal_sheet', loadGoalSheet);
-    const current = await fetchBrand(range);
-    // Previous period is only for the trend; goals still show if it fails
+    const [sheet, current] = await Promise.all([cached('goal_sheet', loadGoalSheet), fetchBrand(range)]);
+
     let previous = null, previousError = null;
-    try { previous = await fetchBrand(prevRange); }
-    catch (err) { previousError = err.message; console.error('[goals previous period]', err.message); }
+    if (withTrend) {
+      // Previous period is only for the trend; goals still show if it fails
+      try { previous = await fetchBrand(prevRange, PREVIOUS_PERIOD_TTL); }
+      catch (err) { previousError = err.message; console.error('[goals previous period]', err.message); }
+    }
 
     res.json({
       markets: scoreGoals(sheet, current, previous, range),
       dateRange: range,
       previousRange: prevRange,
+      trendLoaded: withTrend && !previousError,
       previousError,
     });
   } catch (err) {

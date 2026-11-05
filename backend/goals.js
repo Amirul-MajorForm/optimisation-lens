@@ -42,7 +42,7 @@ export function parsePublishedTable(html) {
 
 async function fetchTab(gid) {
   const url = `${PUB_BASE}/pubhtml/sheet?headers=false&gid=${gid}`;
-  const res = await fetch(url, { redirect: 'follow' });
+  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(20000) });
   if (!res.ok) throw new Error(`Goals sheet tab ${gid}: HTTP ${res.status}`);
   return parsePublishedTable(await res.text());
 }

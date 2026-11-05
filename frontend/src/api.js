@@ -1,5 +1,5 @@
-async function getJSON(path, { dateRange, startDate, endDate }, signal) {
-  const params = new URLSearchParams({ dateRange: String(dateRange) });
+async function getJSON(path, { dateRange, startDate, endDate }, signal, extra = {}) {
+  const params = new URLSearchParams({ dateRange: String(dateRange), ...extra });
   if (startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
@@ -16,7 +16,8 @@ async function getJSON(path, { dateRange, startDate, endDate }, signal) {
 export const fetchDashboard = (params, signal) => getJSON('/api/dashboard', params, signal);
 
 // Brand Lens goal tracking: goals from the MajorPace sheet scored for this range
-export const fetchGoals = (params, signal) => getJSON('/api/goals', params, signal);
+export const fetchGoals = (params, signal, { trend = false } = {}) =>
+  getJSON('/api/goals', params, signal, trend ? { trend: '1' } : {});
 
 // Commerce Lens: Meta CPAS accounts, only requested when the tab is opened
 export const fetchCommerce = (params, signal) => getJSON('/api/commerce', params, signal);
