@@ -56,7 +56,12 @@ const makeQuery = (accounts, metrics, dateRange) => queryTMR(TMR_API_KEY, TEAM_I
   sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
 });
 
-const META_METRICS = ['amount_spent', 'impressions', 'clicks', 'reach', 'video_views'];
+// TMR field ids: amount_spent, impressions and clicks are common fields shared by
+// every connector; platform-specific fields must carry the connector prefix
+// (e.g. ttads_video_play_actions). parsePlatformResult strips the prefix again.
+const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views'];
+const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach'];
+const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks'];
 
 function requireKey(res) {
   if (TMR_API_KEY) return true;
@@ -80,9 +85,9 @@ app.get('/api/dashboard', async (req, res) => {
 
     const result = await cached(`brand_${dateRangeObj.startDate}_${dateRangeObj.endDate}`, async () => {
       // 3 requests total — one per platform, all markets combined (queued in tmr.js)
-      const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, ['amount_spent', 'impressions', 'clicks', 'video_play_actions', 'reach'], dateRangeObj);
+      const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, TIKTOK_METRICS, dateRangeObj);
       const metaRaw   = await makeQuery(ALL_ACCOUNTS.meta, META_METRICS, dateRangeObj);
-      const googleRaw = await makeQuery(ALL_ACCOUNTS.google, ['amount_spent', 'impressions', 'clicks'], dateRangeObj);
+      const googleRaw = await makeQuery(ALL_ACCOUNTS.google, GOOGLE_METRICS, dateRangeObj);
 
       // Split each platform's rows into per-market buckets
       const split = { tiktok: splitByMarket(ttRaw), meta: splitByMarket(metaRaw), google: splitByMarket(googleRaw) };

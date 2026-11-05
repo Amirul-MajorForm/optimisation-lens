@@ -142,7 +142,10 @@ export function splitByMarket(tmrResponse) {
 
 export function parsePlatformResult(tmrResponse) {
   const rows = (tmrResponse?.data || []).map(row => {
-    const out = { ...row };
+    // Strip connector prefixes from prefixed field ids (ttads_reach -> reach)
+    const out = Object.fromEntries(
+      Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v])
+    );
     if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
     // Derive rate metrics per row (TMR doesn't return these at row level)
     const sp  = parseFloat(out.spend) || 0;
