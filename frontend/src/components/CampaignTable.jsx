@@ -6,7 +6,7 @@ import { BreakableName } from '../campaignName.jsx';
 // Metrics a platform does not report render as "—".
 const COLUMNS = [
   { key: 'campaign_name', label: 'Campaign',    align: 'left',  grow: true, format: null },
-  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency', width: 132 },
+  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency', width: 126 },
   { key: 'impressions',   label: 'Impr.',       align: 'right', format: 'compact' },
   { key: 'reach',         label: 'Reach',       align: 'right', format: 'compact' },
   { key: 'video_views',   label: 'Video Views', align: 'right', format: 'compact' },
@@ -14,16 +14,34 @@ const COLUMNS = [
   { key: 'ctr',           label: 'CTR',         align: 'right', format: 'percent' },
   { key: 'cpm',           label: 'CPM',         align: 'right', format: 'currency' },
   { key: 'cpc',           label: 'CPC',         align: 'right', format: 'currency' },
+  { key: 'cplv',          label: 'CPLV',        align: 'right', format: 'currency', title: 'Cost per landing page view (traffic campaigns only)' },
 ];
-const METRIC_COL_WIDTH = 92;
-const CAMPAIGN_COL_MIN = 190;
+const METRIC_COL_WIDTH = 86;
+const CAMPAIGN_COL_MIN = 170;
 const colWidth = col => col.width ?? METRIC_COL_WIDTH;
 const TABLE_MIN_WIDTH = CAMPAIGN_COL_MIN + COLUMNS.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
 
-// TikTok reports video views as video_play_actions
+// Traffic campaigns are named ..._Traffic_... (e.g. SG_Meta_OATSIDE_Consideration_CPLV_Traffic_2026_Coffee)
+export const isTrafficCampaign = name => /_traffic(_|$)/i.test(name || '');
+
+const cplvOf = (spend, lpv) => {
+  const s = parseFloat(spend), l = parseFloat(lpv);
+  return l > 0 ? s / l : null;
+};
+
+// TikTok reports video views as video_play_actions; CPLV only for traffic campaigns
 function cellValue(row, key) {
   if (key === 'video_views') return row.video_views ?? row.video_play_actions;
+  if (key === 'cplv') return isTrafficCampaign(row.campaign_name) ? cplvOf(row.spend, row.landing_page_views) : null;
   return row[key];
+}
+
+// Platform-level CPLV across its traffic campaigns only
+function trafficCplv(campaigns) {
+  const traffic = campaigns.filter(c => isTrafficCampaign(c.campaign_name));
+  if (!traffic.length) return null;
+  const sum = k => traffic.reduce((a, c) => a + (parseFloat(c[k]) || 0), 0);
+  return cplvOf(sum('spend'), sum('landing_page_views'));
 }
 
 const PLATFORM_CONFIG = {
@@ -38,6 +56,7 @@ const PLATFORM_CONFIG = {
       { key: 'reach',              label: 'Reach',        format: 'compact' },
       { key: 'ctr',                label: 'CTR',          format: 'percent' },
       { key: 'cpm',                label: 'CPM',          format: 'currency' },
+      { key: 'cplv',               label: 'CPLV · Traffic', format: 'currency', optional: true },
     ],
   },
   meta: {
@@ -51,6 +70,7 @@ const PLATFORM_CONFIG = {
       { key: 'clicks',      label: 'Clicks',      format: 'compact' },
       { key: 'ctr',         label: 'CTR',         format: 'percent' },
       { key: 'cpm',         label: 'CPM',         format: 'currency' },
+      { key: 'cplv',        label: 'CPLV · Traffic', format: 'currency', optional: true },
     ],
   },
   google: {
@@ -118,6 +138,7 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
   if (!config) return null;
 
   const { campaigns = [], total = {}, currency = 'SGD' } = data || {};
+  const kpiTotal = { ...total, cplv: trafficCplv(campaigns) };
 
   const sorted = [...campaigns].sort((a, b) => {
     const av = cellValue(a, sortKey) ?? 0;
@@ -174,7 +195,12 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
 
       {expanded && (
         <>
-          <KPIRow kpis={config.kpis} total={total} theme={theme} currency={currency} />
+          <KPIRow
+            kpis={config.kpis.filter(k => !k.optional || (k.key === 'cplv' && kpiTotal.cplv != null))}
+            total={kpiTotal}
+            theme={theme}
+            currency={currency}
+          />
 
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', minWidth: TABLE_MIN_WIDTH, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12.5 }}>
@@ -189,6 +215,7 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
                     <th
                       key={col.key}
                       onClick={() => handleSort(col.key)}
+                      title={col.title}
                       style={{
                         padding: '8px 10px',
                         textAlign: col.align,

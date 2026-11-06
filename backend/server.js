@@ -138,8 +138,9 @@ async function makeQuerySplit(accounts, metrics, dateRange, { split = true } = {
 // TMR field ids: amount_spent, impressions and clicks are common fields shared by
 // every connector; platform-specific fields must carry the connector prefix
 // (e.g. ttads_video_play_actions). parsePlatformResult strips the prefix again.
-const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views'];
-const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach'];
+// Landing page views feed the CPLV column for traffic campaigns
+const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views', 'fads_website_fb_landing_page_views'];
+const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach', 'ttads_total_landing_page_view'];
 const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks'];
 
 // Goal tracking needs heavier metrics (landing page views, 6-second views,
