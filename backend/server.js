@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
-import { TEAM_ID, MARKETS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
+import { TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -49,7 +49,7 @@ function resolveDateRange(query) {
   return getDateRange(days);
 }
 
-const makeQuery = (accounts, metrics, dateRange) => queryTMR(TMR_API_KEY, TEAM_ID, {
+const queryOnce = (accounts, metrics, dateRange) => queryTMR(TMR_API_KEY, TEAM_ID, {
   accounts,
   dimensions: ['campaign_name'],
   metrics,
@@ -57,15 +57,99 @@ const makeQuery = (accounts, metrics, dateRange) => queryTMR(TMR_API_KEY, TEAM_I
   sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
 });
 
+const DAY = 86400000;
+const isoDay = t => new Date(t).toISOString().slice(0, 10);
+
+// Sum rows that share a campaign name (results of split queries). All metrics we
+// request are additive except reach, which is slightly overstated when a single
+// campaign's date range had to be split.
+function mergeRows(...results) {
+  const byName = new Map();
+  for (const r of results.flatMap(x => x?.data || [])) {
+    const prev = byName.get(r.campaign_name);
+    if (!prev) { byName.set(r.campaign_name, { ...r }); continue; }
+    for (const [k, v] of Object.entries(r)) {
+      if (k === 'campaign_name') continue;
+      const n = parseFloat(v);
+      if (isFinite(n)) prev[k] = (parseFloat(prev[k]) || 0) + n;
+    }
+  }
+  return { data: [...byName.values()] };
+}
+
+// Some metrics cannot be summed over a multi-day range (TikTok rejects "Reach"
+// with "... was aggregated which can give out exaggerated results").
+const NON_ADDITIVE = ['ttads_reach', 'fads_reach'];
+
+// If TMR still returns 504 (~60s, and every failed attempt costs that minute),
+// splitting is bounded:
+//   1. several accounts -> one query per account
+//   2. one account      -> its date range in two halves (once)
+// Results are merged by campaign name.
+// Ranges longer than this are queried in chunks up front: one month across all
+// accounts takes ~10s, while 60-90 day ranges risk TMR's 60s limit (504).
+const MAX_CHUNK_DAYS = 31;
+
+function chunkRange({ startDate, endDate }) {
+  const chunks = [];
+  const end = Date.parse(endDate);
+  for (let s = Date.parse(startDate); s <= end; s += MAX_CHUNK_DAYS * DAY) {
+    chunks.push({ startDate: isoDay(s), endDate: isoDay(Math.min(end, s + (MAX_CHUNK_DAYS - 1) * DAY)) });
+  }
+  return chunks;
+}
+
+async function makeQuery(accounts, metrics, dateRange, opts) {
+  const chunks = chunkRange(dateRange);
+  if (chunks.length === 1) return makeQuerySplit(accounts, metrics, dateRange, opts);
+  const parts = [];
+  for (const chunk of chunks) parts.push(await makeQuerySplit(accounts, metrics, chunk, opts));
+  return mergeRows(...parts);
+}
+
+async function makeQuerySplit(accounts, metrics, dateRange, { split = true } = {}) {
+  try {
+    return await queryOnce(accounts, metrics, dateRange);
+  } catch (err) {
+    const dropped = metrics.filter(m => NON_ADDITIVE.includes(m));
+    if (/aggregated/i.test(err.message) && dropped.length) {
+      console.warn(`[TMR] ${dropped.join(', ')} cannot be aggregated for this range — retrying without it`);
+      return makeQuerySplit(accounts, metrics.filter(m => !dropped.includes(m)), dateRange, { split });
+    }
+    if (err.status !== 504 || !split) throw err;
+
+    if (accounts.length > 1) {
+      console.warn(`[TMR] 504 — retrying ${accounts.length} accounts one at a time`);
+      const parts = [];
+      for (const acc of accounts) parts.push(await makeQuerySplit([acc], metrics, dateRange));
+      return mergeRows(...parts);
+    }
+    const s = Date.parse(dateRange.startDate), e = Date.parse(dateRange.endDate);
+    const days = Math.round((e - s) / DAY) + 1;
+    if (days < 2) throw err;
+    const half = Math.floor(days / 2);
+    console.warn(`[TMR] 504 — splitting ${days}-day range for ${accounts[0]} in two`);
+    const first  = await makeQuerySplit(accounts, metrics, { startDate: dateRange.startDate, endDate: isoDay(s + (half - 1) * DAY) }, { split: false });
+    const second = await makeQuerySplit(accounts, metrics, { startDate: isoDay(s + half * DAY), endDate: dateRange.endDate }, { split: false });
+    return mergeRows(first, second);
+  }
+}
+
 // TMR field ids: amount_spent, impressions and clicks are common fields shared by
 // every connector; platform-specific fields must carry the connector prefix
 // (e.g. ttads_video_play_actions). parsePlatformResult strips the prefix again.
-// Landing page views and quality video views feed goal tracking (CPLV, CPV).
-const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views',
-                        'fads_website_fb_landing_page_views', 'fads_video_thruplay_watched_actions'];
-const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach',
-                        'ttads_total_landing_page_view', 'ttads_video_watched_6s'];
+const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views'];
+const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach'];
 const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks'];
+
+// Goal tracking needs heavier metrics (landing page views, 6-second views,
+// ThruPlays). They are fetched separately, only for accounts that have goals,
+// so the main Brand/Commerce queries stay fast.
+const GOAL_METRICS = {
+  tiktok: ['amount_spent', 'impressions', 'clicks', 'ttads_total_landing_page_view', 'ttads_video_watched_6s'],
+  meta:   ['amount_spent', 'impressions', 'clicks', 'fads_website_fb_landing_page_views', 'fads_video_thruplay_watched_actions'],
+  google: ['amount_spent', 'impressions', 'clicks'],
+};
 
 function requireKey(res) {
   if (TMR_API_KEY) return true;
@@ -122,11 +206,35 @@ app.get('/api/dashboard', async (req, res) => {
 });
 
 // Goal tracking (Brand Lens): goals from the published MajorPace sheet, scored
-// against the selected range. Without ?trend=1 it only needs the current-period
-// brand data (shared with /api/dashboard), so it returns as soon as the tables
-// can. With ?trend=1 it also fetches the equal-length previous period
-// (3 more TMR requests, cached for an hour since that data is historical).
+// against the selected range. Goal metrics come from their own light query,
+// limited to accounts that have goals (one request per platform with goals).
+// With ?trend=1 the same query also runs for the equal-length previous period
+// (cached for an hour since that data is historical).
 const PREVIOUS_PERIOD_TTL = 60 * 60 * 1000;
+
+function fetchGoalData(sheet, range, ttl = CACHE_TTL) {
+  // Which platform/market accounts have goals
+  const wanted = {};
+  for (const g of sheet.goals) {
+    const account = ACCOUNTS[g.platform]?.[g.market];
+    if (account) (wanted[g.platform] ||= new Set()).add(account);
+  }
+  const key = Object.entries(wanted).map(([p, s]) => `${p}:${[...s].sort().join('+')}`).sort().join('|');
+
+  return cached(`goaldata_${range.startDate}_${range.endDate}_${key}`, async () => {
+    const raw = {};
+    for (const [platform, accounts] of Object.entries(wanted)) {
+      raw[platform] = splitByMarket(await makeQuery([...accounts], GOAL_METRICS[platform], range));
+    }
+    const markets = Object.fromEntries(Object.entries(MARKETS).map(([code, cfg]) => [code,
+      Object.fromEntries(['tiktok', 'meta', 'google'].map(platform => [platform, {
+        ...parsePlatformResult({ data: raw[platform]?.[code] || [] }),
+        currency: cfg.currency[platform],
+      }])),
+    ]));
+    return { markets, dateRange: range };
+  }, ttl);
+}
 
 app.get('/api/goals', async (req, res) => {
   try {
@@ -135,12 +243,13 @@ app.get('/api/goals', async (req, res) => {
     const prevRange = previousRange(range);
     const withTrend = req.query.trend === '1';
 
-    const [sheet, current] = await Promise.all([cached('goal_sheet', loadGoalSheet), fetchBrand(range)]);
+    const sheet = await cached('goal_sheet', loadGoalSheet);
+    const current = await fetchGoalData(sheet, range);
 
     let previous = null, previousError = null;
     if (withTrend) {
       // Previous period is only for the trend; goals still show if it fails
-      try { previous = await fetchBrand(prevRange, PREVIOUS_PERIOD_TTL); }
+      try { previous = await fetchGoalData(sheet, prevRange, PREVIOUS_PERIOD_TTL); }
       catch (err) { previousError = err.message; console.error('[goals previous period]', err.message); }
     }
 

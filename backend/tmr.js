@@ -15,28 +15,34 @@ export const MARKETS = {
 };
 
 // All accounts per platform across every market (for single bulk query)
-export const ALL_ACCOUNTS = {
-  tiktok: [
-    'ttads_7216573742091091970', // SG
-    'ttads_7421836044171132944', // MY
-    'ttads_7337602518762930178', // PH
-    'ttads_7539818342035931137', // VN
-    'ttads_7558728389196365825', // ID
-    'ttads_7601715326036017169', // TH
-  ],
-  meta: [
-    'fads_act_764971328270854',  // SG
-    'fads_act_480865091512259',  // MY
-    'fads_act_1073423930376728', // PH
-    'fads_act_2540917533074538', // VN
-    'fads_act_360540913050861',  // ID
-    'fads_act_392347893765489',  // TH
-  ],
-  google: [
-    'gadw_3685435931',   // SG
-    'gadw_8618833919',   // VN
-  ],
+// Brand (non-CPAS) accounts per platform and market
+export const ACCOUNTS = {
+  tiktok: {
+    sg: 'ttads_7216573742091091970',
+    my: 'ttads_7421836044171132944',
+    ph: 'ttads_7337602518762930178',
+    vn: 'ttads_7539818342035931137',
+    id: 'ttads_7558728389196365825',
+    th: 'ttads_7601715326036017169',
+  },
+  meta: {
+    sg: 'fads_act_764971328270854',
+    my: 'fads_act_480865091512259',
+    ph: 'fads_act_1073423930376728',
+    vn: 'fads_act_2540917533074538',
+    id: 'fads_act_360540913050861',
+    th: 'fads_act_392347893765489',
+  },
+  google: {
+    sg: 'gadw_3685435931',
+    vn: 'gadw_8618833919',
+  },
 };
+
+// All accounts per platform across every market (for single bulk query)
+export const ALL_ACCOUNTS = Object.fromEntries(
+  Object.entries(ACCOUNTS).map(([platform, byMarket]) => [platform, Object.values(byMarket)])
+);
 
 // Every Meta account with "CPAS" in its name, shown under Commerce Lens.
 // Grouped by billing currency so every row in one TMR request shares a currency:
@@ -124,7 +130,9 @@ async function queryTMRDirect(apiKey, teamId, body, attempt = 0) {
   } catch (err) {
     if (err.name === 'TimeoutError' || err.name === 'AbortError') {
       console.error(`[TMR] timeout after ${TMR_TIMEOUT_MS / 1000}s: ${label}`);
-      throw new Error(`Two Minute Reports did not respond within ${TMR_TIMEOUT_MS / 1000}s — try again or pick a shorter date range`);
+      const e = new Error(`Two Minute Reports did not respond within ${TMR_TIMEOUT_MS / 1000}s — try again or pick a shorter date range`);
+      e.status = 504;
+      throw e;
     }
     throw err;
   }
@@ -140,7 +148,11 @@ async function queryTMRDirect(apiKey, teamId, body, attempt = 0) {
     console.error(`[TMR] ${res.status}:`, text.slice(0, 600));
     let msg = `TMR API ${res.status}`;
     try { const e = JSON.parse(text); msg = e.error?.message || e.message || msg; } catch {}
-    throw new Error(msg);
+    const e = new Error(res.status === 504
+      ? 'Two Minute Reports timed out on this query (504) — try a shorter date range'
+      : msg);
+    e.status = res.status;
+    throw e;
   }
   return res.json();
 }
