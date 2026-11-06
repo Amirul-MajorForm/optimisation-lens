@@ -216,6 +216,10 @@ export function scoreGoals({ goals, fx }, current, previous, range) {
       trendPct,
       onTrack: diffPct == null ? null : (model.lowerIsBetter ? actual <= g.goal.value : actual >= g.goal.value),
       spend: row ? parseFloat(row.spend) || 0 : 0,
+      // Multiply an account-currency value by this to get the goal's currency
+      fxToGoal: !model?.money || accountCurrency === g.goal.currency ? 1
+        : (fx[accountCurrency] && fx[g.goal.currency] ? fx[accountCurrency] / fx[g.goal.currency] : null),
+      accountCurrency,
       flight: { start: g.start, end: g.end },
       sheetStatus: g.sheetStatus,
       note,

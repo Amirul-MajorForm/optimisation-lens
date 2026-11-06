@@ -10,7 +10,7 @@ const CAMPAIGN_PLATFORMS = [
 // platform whose name contains "_Sales_" or "_Conversion_".
 // CPAS comes as one block per billing currency, so mixed-currency markets
 // (e.g. ID: IDR and SGD) get separate sections instead of a summed total.
-export default function CommerceLens({ theme, commerce, campaigns, loading }) {
+export default function CommerceLens({ theme, commerce, campaigns, loading, onTrend }) {
   const cpas = commerce?.cpas ?? [];
   const multiCurrency = cpas.length > 1;
   const campaignSections = CAMPAIGN_PLATFORMS.filter(p => campaigns?.[p.key]?.campaigns?.length > 0);
@@ -45,6 +45,8 @@ export default function CommerceLens({ theme, commerce, campaigns, loading }) {
           data={block}
           theme={theme}
           loading={loading}
+          lens="commerce"
+          onTrend={onTrend}
         />
       ))}
       {campaignSections.map(p => (
@@ -55,6 +57,8 @@ export default function CommerceLens({ theme, commerce, campaigns, loading }) {
           data={campaigns[p.key]}
           theme={theme}
           loading={loading}
+          lens="brand"
+          onTrend={onTrend}
         />
       ))}
     </div>

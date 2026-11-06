@@ -128,7 +128,7 @@ function KPIRow({ kpis, total, theme, currency }) {
   );
 }
 
-export function PlatformSection({ platform, label, data, theme, loading }) {
+export function PlatformSection({ platform, label, data, theme, loading, lens = 'brand', onTrend }) {
   const [sortKey, setSortKey] = useState('spend');
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
@@ -279,7 +279,29 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
                                   : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
                               }}
                             >
-                              {col.grow && val ? <BreakableName name={val} /> : display}
+                              {col.grow && val ? (
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                                  {onTrend && (
+                                    <button
+                                      onClick={() => onTrend({ campaign: val, platform, lens, currency })}
+                                      title="View daily trend (CPM / CTR / CPLV)"
+                                      aria-label={`View daily trend for ${val}`}
+                                      style={{
+                                        flexShrink: 0, width: 24, height: 24, marginTop: -2, borderRadius: 6,
+                                        border: `1px solid ${theme.border}`, background: theme.surface,
+                                        color: theme.accent, cursor: 'pointer', display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center', padding: 0,
+                                      }}
+                                    >
+                                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <path d="M3 3v18h18" />
+                                        <path d="M7 15l4-4 3 3 5-6" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  <span style={{ minWidth: 0 }}><BreakableName name={val} /></span>
+                                </div>
+                              ) : display}
                             </td>
                           );
                         })}
@@ -295,12 +317,12 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
   );
 }
 
-export default function CampaignTable({ theme, data, loading }) {
+export default function CampaignTable({ theme, data, loading, onTrend }) {
   return (
     <div>
-      <PlatformSection platform="tiktok" data={data?.tiktok} theme={theme} loading={loading} />
-      <PlatformSection platform="meta"   data={data?.meta}   theme={theme} loading={loading} />
-      <PlatformSection platform="google" data={data?.google} theme={theme} loading={loading} />
+      <PlatformSection platform="tiktok" data={data?.tiktok} theme={theme} loading={loading} onTrend={onTrend} />
+      <PlatformSection platform="meta"   data={data?.meta}   theme={theme} loading={loading} onTrend={onTrend} />
+      <PlatformSection platform="google" data={data?.google} theme={theme} loading={loading} onTrend={onTrend} />
     </div>
   );
 }

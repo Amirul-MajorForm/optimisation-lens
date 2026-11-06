@@ -49,27 +49,33 @@ function resolveDateRange(query) {
   return getDateRange(days);
 }
 
-const queryOnce = (accounts, metrics, dateRange) => queryTMR(TMR_API_KEY, TEAM_ID, {
+// opts.dimensions defaults to per-campaign rows; opts.filters narrows the query
+const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'], filters } = {}) => queryTMR(TMR_API_KEY, TEAM_ID, {
   accounts,
-  dimensions: ['campaign_name'],
+  dimensions,
   metrics,
   dateRange,
-  sort: [{ fieldId: 'amount_spent', direction: 'desc' }],
+  ...(filters?.length ? { filters } : {}),
+  sort: dimensions.includes('date')
+    ? [{ fieldId: 'date', direction: 'asc' }]
+    : [{ fieldId: 'amount_spent', direction: 'desc' }],
 });
 
 const DAY = 86400000;
 const isoDay = t => new Date(t).toISOString().slice(0, 10);
 
-// Sum rows that share a campaign name (results of split queries). All metrics we
-// request are additive except reach, which is slightly overstated when a single
-// campaign's date range had to be split.
+// Sum rows that share the same dimension values (results of split queries). All
+// metrics we request are additive except reach, which is slightly overstated
+// when a single campaign's date range had to be split.
+const DIMENSION_KEYS = ['campaign_name', 'date'];
 function mergeRows(...results) {
   const byName = new Map();
   for (const r of results.flatMap(x => x?.data || [])) {
-    const prev = byName.get(r.campaign_name);
-    if (!prev) { byName.set(r.campaign_name, { ...r }); continue; }
+    const key = `${r.campaign_name ?? ''}|${r.date ?? ''}`;
+    const prev = byName.get(key);
+    if (!prev) { byName.set(key, { ...r }); continue; }
     for (const [k, v] of Object.entries(r)) {
-      if (k === 'campaign_name') continue;
+      if (DIMENSION_KEYS.includes(k)) continue;
       const n = parseFloat(v);
       if (isFinite(n)) prev[k] = (parseFloat(prev[k]) || 0) + n;
     }
@@ -107,21 +113,22 @@ async function makeQuery(accounts, metrics, dateRange, opts) {
   return mergeRows(...parts);
 }
 
-async function makeQuerySplit(accounts, metrics, dateRange, { split = true } = {}) {
+async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
+  const { split = true } = opts;
   try {
-    return await queryOnce(accounts, metrics, dateRange);
+    return await queryOnce(accounts, metrics, dateRange, opts);
   } catch (err) {
     const dropped = metrics.filter(m => NON_ADDITIVE.includes(m));
     if (/aggregated/i.test(err.message) && dropped.length) {
       console.warn(`[TMR] ${dropped.join(', ')} cannot be aggregated for this range — retrying without it`);
-      return makeQuerySplit(accounts, metrics.filter(m => !dropped.includes(m)), dateRange, { split });
+      return makeQuerySplit(accounts, metrics.filter(m => !dropped.includes(m)), dateRange, opts);
     }
     if (err.status !== 504 || !split) throw err;
 
     if (accounts.length > 1) {
       console.warn(`[TMR] 504 — retrying ${accounts.length} accounts one at a time`);
       const parts = [];
-      for (const acc of accounts) parts.push(await makeQuerySplit([acc], metrics, dateRange));
+      for (const acc of accounts) parts.push(await makeQuerySplit([acc], metrics, dateRange, opts));
       return mergeRows(...parts);
     }
     const s = Date.parse(dateRange.startDate), e = Date.parse(dateRange.endDate);
@@ -129,8 +136,8 @@ async function makeQuerySplit(accounts, metrics, dateRange, { split = true } = {
     if (days < 2) throw err;
     const half = Math.floor(days / 2);
     console.warn(`[TMR] 504 — splitting ${days}-day range for ${accounts[0]} in two`);
-    const first  = await makeQuerySplit(accounts, metrics, { startDate: dateRange.startDate, endDate: isoDay(s + (half - 1) * DAY) }, { split: false });
-    const second = await makeQuerySplit(accounts, metrics, { startDate: isoDay(s + half * DAY), endDate: dateRange.endDate }, { split: false });
+    const first  = await makeQuerySplit(accounts, metrics, { startDate: dateRange.startDate, endDate: isoDay(s + (half - 1) * DAY) }, { ...opts, split: false });
+    const second = await makeQuerySplit(accounts, metrics, { startDate: isoDay(s + half * DAY), endDate: dateRange.endDate }, { ...opts, split: false });
     return mergeRows(first, second);
   }
 }
@@ -263,6 +270,63 @@ app.get('/api/goals', async (req, res) => {
     });
   } catch (err) {
     console.error('[goals error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Campaign trend (on demand): daily spend / impressions / clicks / landing page
+// views for ONE campaign, so the chart can plot CPM, CTR and CPLV per day.
+// One TMR request (filtered by campaign name), only when a user opens a chart.
+const TREND_METRICS = {
+  tiktok: ['amount_spent', 'impressions', 'clicks', 'ttads_total_landing_page_view'],
+  meta:   ['amount_spent', 'impressions', 'clicks', 'fads_website_fb_landing_page_views'],
+  google: ['amount_spent', 'impressions', 'clicks'],
+};
+
+// TMR may return dates as 2026-10-01, 20261001 or a full timestamp
+function normalizeDate(v) {
+  const s = String(v ?? '');
+  if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
+  return s.slice(0, 10);
+}
+
+app.get('/api/trend', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const { platform, campaign, lens = 'brand' } = req.query;
+    if (!TREND_METRICS[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
+    const range = resolveDateRange(req.query);
+    const accounts = lens === 'commerce' && platform === 'meta'
+      ? [...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD]
+      : ALL_ACCOUNTS[platform];
+
+    const result = await cached(`trend_${lens}_${platform}_${campaign}_${range.startDate}_${range.endDate}`, async () => {
+      const raw = await makeQuery(accounts, TREND_METRICS[platform], range, {
+        dimensions: ['date'],
+        filters: [{ fieldId: 'campaign_name', operator: 'equals', value: campaign }],
+      });
+      const byDate = new Map();
+      for (const row of raw?.data || []) {
+        const r = Object.fromEntries(Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v]));
+        byDate.set(normalizeDate(r.date), {
+          spend: parseFloat(r.amount_spent) || 0,
+          impressions: parseFloat(r.impressions) || 0,
+          clicks: parseFloat(r.clicks) || 0,
+          landing_page_views: parseFloat(r.total_landing_page_view ?? r.website_fb_landing_page_views) || 0,
+        });
+      }
+      // Every day in the range, so days without delivery show as gaps
+      const days = [];
+      for (let t = Date.parse(range.startDate); t <= Date.parse(range.endDate); t += DAY) {
+        const date = isoDay(t);
+        days.push({ date, ...(byDate.get(date) || { spend: 0, impressions: 0, clicks: 0, landing_page_views: 0 }) });
+      }
+      return { campaign, platform, lens, dateRange: range, days };
+    });
+
+    res.json(result);
+  } catch (err) {
+    console.error('[trend error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

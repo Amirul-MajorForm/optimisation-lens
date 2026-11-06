@@ -6,6 +6,7 @@ import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
 import CommerceLens from './components/CommerceLens.jsx';
 import GoalTracker from './components/GoalTracker.jsx';
+import TrendPanel from './components/TrendPanel.jsx';
 import Sidebar from './components/Sidebar.jsx';
 
 const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.markets || {}));
@@ -21,6 +22,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('brand');
+  // Campaign trend chart: { campaign, platform, lens, currency } of the campaign being viewed
+  const [trendTarget, setTrendTarget] = useState(null);
+  const closeTrend = useCallback(() => setTrendTarget(null), []);
   // Commerce Lens data is only fetched once the tab is opened
   const [commerce, setCommerce] = useState(null); // { params, data }
   const [commerceLoading, setCommerceLoading] = useState(false);
@@ -248,7 +252,7 @@ export default function App() {
                     previousError={goals?.data?.previousError}
                     trendLoaded={goals?.params === fetchParams && !!goals.data?.trendLoaded}
                   />
-                  <CampaignTable theme={theme} data={marketData} loading={loading} />
+                  <CampaignTable theme={theme} data={marketData} loading={loading} onTrend={setTrendTarget} />
                 </>
               )}
 
@@ -258,10 +262,22 @@ export default function App() {
                   commerce={commerceData?.markets?.[market]}
                   campaigns={marketData?.commerceCampaigns}
                   loading={commerceLoading || loading}
+                  onTrend={setTrendTarget}
                 />
               )}
 
             </main>
+
+            {trendTarget && (
+              <TrendPanel
+                target={trendTarget}
+                params={fetchParams}
+                goals={goals?.params === fetchParams ? goals.data?.markets?.[market] : null}
+                theme={theme}
+                darkMode={darkMode}
+                onClose={closeTrend}
+              />
+            )}
           </>
         );
       })()}
