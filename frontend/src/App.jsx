@@ -224,7 +224,7 @@ export default function App() {
               refreshing={isCommerce ? (loading || commerceLoading) : loading}
             />
 
-            <main style={{ flex: 1, overflowY: 'auto', padding: '28px 32px 64px' }}>
+            <main style={{ flex: 1, overflowY: 'auto', padding: '24px 24px 64px' }}>
               {shownError && (
                 <div style={{
                   background: darkMode ? '#3b0a0a' : '#fee2e2',

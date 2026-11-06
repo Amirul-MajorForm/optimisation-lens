@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { parseCampaignName, BreakableName } from '../campaignName.jsx';
 
 const PLATFORM_BADGE = {
   tiktok: { label: 'TikTok', light: ['#f0f0f0', '#010101'], dark: ['#1f2937', '#f1f5f9'] },
@@ -28,6 +29,35 @@ const fmtPct = p => `${Math.abs(p) < 10 ? Math.abs(p).toFixed(1) : Math.round(Ma
 function fmtFlight({ start, end }) {
   const f = s => s ? new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '?';
   return start || end ? `${f(start)} – ${f(end)}` : '';
+}
+
+// Lead with the part that tells campaigns apart (the descriptor after the year),
+// then objective / goal, then the full name wrapped so nothing is cut off.
+function CampaignTitle({ name, theme }) {
+  const parsed = parseCampaignName(name);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      {parsed && (
+        <>
+          <div style={{ fontSize: 15, fontWeight: 700, color: theme.textPrimary, lineHeight: 1.3, overflowWrap: 'anywhere' }}>
+            {parsed.descriptor}
+          </div>
+          <div style={{ fontSize: 12, color: theme.textSecondary }}>
+            {[parsed.objective, parsed.goal].filter(Boolean).join(' · ')}
+          </div>
+        </>
+      )}
+      <div style={{
+        fontSize: parsed ? 11 : 13,
+        fontWeight: parsed ? 400 : 600,
+        color: parsed ? theme.textMuted : theme.textPrimary,
+        lineHeight: 1.4,
+        overflowWrap: 'anywhere',
+      }}>
+        <BreakableName name={name} />
+      </div>
+    </div>
+  );
 }
 
 function GoalCard({ g, theme, darkMode, trendPending }) {
@@ -66,9 +96,7 @@ function GoalCard({ g, theme, darkMode, trendPending }) {
         )}
       </div>
 
-      <div title={g.campaign} style={{ fontSize: 13, fontWeight: 500, color: theme.textPrimary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {g.campaign}
-      </div>
+      <CampaignTitle name={g.campaign} theme={theme} />
 
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 16 }}>
         <div>

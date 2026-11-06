@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { fmt } from '../theme.js';
+import { BreakableName } from '../campaignName.jsx';
 
 // One shared column set so TikTok, Meta and Google tables line up exactly.
 // Metrics a platform does not report render as "—".
 const COLUMNS = [
   { key: 'campaign_name', label: 'Campaign',    align: 'left',  grow: true, format: null },
-  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency', width: 150 },
+  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency', width: 132 },
   { key: 'impressions',   label: 'Impr.',       align: 'right', format: 'compact' },
   { key: 'reach',         label: 'Reach',       align: 'right', format: 'compact' },
   { key: 'video_views',   label: 'Video Views', align: 'right', format: 'compact' },
@@ -14,8 +15,8 @@ const COLUMNS = [
   { key: 'cpm',           label: 'CPM',         align: 'right', format: 'currency' },
   { key: 'cpc',           label: 'CPC',         align: 'right', format: 'currency' },
 ];
-const METRIC_COL_WIDTH = 112;
-const CAMPAIGN_COL_MIN = 240;
+const METRIC_COL_WIDTH = 92;
+const CAMPAIGN_COL_MIN = 190;
 const colWidth = col => col.width ?? METRIC_COL_WIDTH;
 const TABLE_MIN_WIDTH = CAMPAIGN_COL_MIN + COLUMNS.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
 
@@ -71,7 +72,7 @@ function SkeletonRow({ cols }) {
   return (
     <tr>
       {Array.from({ length: cols }).map((_, i) => (
-        <td key={i} style={{ padding: '10px 14px' }}>
+        <td key={i} style={{ padding: '10px 10px' }}>
           <div style={{ height: 14, background: '#e2e8f0', borderRadius: 4, width: i === 0 ? '70%' : '60%', animation: 'kpi-pulse 1.6s ease-in-out infinite' }} />
         </td>
       ))}
@@ -176,7 +177,7 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
           <KPIRow kpis={config.kpis} total={total} theme={theme} currency={currency} />
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: TABLE_MIN_WIDTH, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', minWidth: TABLE_MIN_WIDTH, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <colgroup>
                 {columns.map(col => (
                   <col key={col.key} style={col.grow ? undefined : { width: colWidth(col) }} />
@@ -189,9 +190,9 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
                       key={col.key}
                       onClick={() => handleSort(col.key)}
                       style={{
-                        padding: '8px 14px',
+                        padding: '8px 10px',
                         textAlign: col.align,
-                        fontSize: 11, fontWeight: 600,
+                        fontSize: 10.5, fontWeight: 600,
                         letterSpacing: '0.06em', textTransform: 'uppercase',
                         color: sortKey === col.key ? theme.accent : theme.textMuted,
                         fontFamily: "'Space Grotesk', sans-serif",
@@ -239,16 +240,19 @@ export function PlatformSection({ platform, label, data, theme, loading }) {
                               key={col.key}
                               title={col.key === 'campaign_name' ? (val || '') : undefined}
                               style={{
-                                padding: '10px 14px',
+                                padding: '10px 10px',
                                 textAlign: col.align,
                                 color: col.key === 'campaign_name' ? theme.textPrimary : theme.textSecondary,
                                 fontWeight: col.key === 'campaign_name' ? 500 : 400,
-                                overflow: 'hidden',
-                                textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap',
+                                verticalAlign: 'top',
+                                lineHeight: 1.45,
+                                // Campaign names wrap at "_" / "-"; numbers stay on one line
+                                ...(col.grow
+                                  ? { overflowWrap: 'anywhere' }
+                                  : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
                               }}
                             >
-                              {display}
+                              {col.grow && val ? <BreakableName name={val} /> : display}
                             </td>
                           );
                         })}
