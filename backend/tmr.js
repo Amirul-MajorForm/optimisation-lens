@@ -72,6 +72,17 @@ export const CPAS_ACCOUNTS = {
   ],
 };
 
+// Market of each CPAS account (used to query only the right accounts for a chart)
+export const CPAS_MARKET = {
+  fads_act_1925389034916546: 'sg', fads_act_674743694682068: 'sg', fads_act_335142002450041: 'sg',
+  fads_act_1001057058029561: 'my',
+  fads_act_1324603498206088: 'ph', fads_act_2011132199258393: 'ph',
+  fads_act_1196047278954896: 'vn',
+  fads_act_343672155283730: 'id', fads_act_1437746287146983: 'id', fads_act_292204293382312: 'id',
+  fads_act_730983682111075: 'id', fads_act_271434125229951: 'id',
+  fads_act_186600104319744: 'th', fads_act_742104760960709: 'th', fads_act_3517635831788796: 'th',
+};
+
 // Brand-account campaigns (any platform) containing "_Sales_" or "_Conversion_"
 // belong under Commerce Lens. Case-insensitive; the underscores are required,
 // so "_Conversions_" (plural) or a name ending in "_Sales" does not match.
@@ -193,7 +204,7 @@ async function queryTMRDirect(apiKey, teamId, body, attempt = 0) {
 // Detect market from the first known market code in the campaign name,
 // e.g. "SG_TikTok_..." or "(cancelled)TH_PP-All_..." -> "sg" / "th".
 // Falls back to SG when no known code is found.
-function detectMarket(campaignName) {
+export function detectMarket(campaignName) {
   const re = /(?:^|[^A-Za-z])([A-Za-z]{2})_/g;
   let m;
   while ((m = re.exec(campaignName || '')) !== null) {

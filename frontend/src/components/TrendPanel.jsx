@@ -177,16 +177,23 @@ export default function TrendPanel({ target, params, goals, theme, darkMode, onC
 
   const [metric, setMetric] = useState(initial);
   const [view, setView] = useState('chart');
-  const [state, setState] = useState({ loading: true, data: null, error: null });
+  // Two datasets, fetched only when a tab needs them:
+  //   base: spend / impressions / clicks   -> CPM, CTR
+  //   lpv:  base + landing page views      -> CPLV (also serves CPM / CTR)
+  const [sets, setSets] = useState({ base: null, lpv: null });
+  const [errors, setErrors] = useState({ base: null, lpv: null });
+  const need = metric === 'CPLV' ? 'lpv' : (sets.lpv ? 'lpv' : 'base');
 
   useEffect(() => {
+    if (sets[need] || errors[need]) return;
     const ctrl = new AbortController();
-    setState({ loading: true, data: null, error: null });
-    fetchTrend(params, { campaign, platform, lens }, ctrl.signal)
-      .then(data => setState({ loading: false, data, error: null }))
-      .catch(e => { if (e.name !== 'AbortError') setState({ loading: false, data: null, error: e.message }); });
+    fetchTrend(params, { campaign, platform, lens, lpv: need === 'lpv' }, ctrl.signal)
+      .then(data => setSets(s => ({ ...s, [need]: data })))
+      .catch(e => { if (e.name !== 'AbortError') setErrors(x => ({ ...x, [need]: e.message })); });
     return () => ctrl.abort();
-  }, [campaign, platform, lens, params]);
+  }, [need, sets, errors, campaign, platform, lens, params]);
+
+  const state = { loading: !sets[need] && !errors[need], data: sets[need], error: errors[need] };
 
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };

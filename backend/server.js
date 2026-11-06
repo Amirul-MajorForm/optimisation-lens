@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
-import { PRIORITY, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
+import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -274,14 +274,15 @@ app.get('/api/goals', async (req, res) => {
   }
 });
 
-// Campaign trend (on demand): daily spend / impressions / clicks / landing page
-// views for ONE campaign, so the chart can plot CPM, CTR and CPLV per day.
-// One TMR request (filtered by campaign name), only when a user opens a chart.
-const TREND_METRICS = {
-  tiktok: ['amount_spent', 'impressions', 'clicks', 'ttads_total_landing_page_view'],
-  meta:   ['amount_spent', 'impressions', 'clicks', 'fads_website_fb_landing_page_views'],
-  google: ['amount_spent', 'impressions', 'clicks'],
-};
+// Campaign trend (on demand): daily data for ONE campaign, only when a user
+// opens a chart. Kept fast by:
+//   - querying the campaign's own account first (from its market prefix, e.g.
+//     SG_Meta_... -> the SG Meta account), other accounts only if it is not there
+//   - spend / impressions / clicks for CPM and CTR; landing page views (heavy on
+//     Meta) only when the CPLV tab asks for them (?lpv=1)
+const TREND_BASE = ['amount_spent', 'impressions', 'clicks'];
+const TREND_LPV = { tiktok: 'ttads_total_landing_page_view', meta: 'fads_website_fb_landing_page_views' };
+const TREND_METRICS = { tiktok: true, meta: true, google: true };
 
 // TMR may return dates as 2026-10-01, 20261001 or a full timestamp
 function normalizeDate(v) {
@@ -296,16 +297,31 @@ app.get('/api/trend', async (req, res) => {
     const { platform, campaign, lens = 'brand' } = req.query;
     if (!TREND_METRICS[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
     const range = resolveDateRange(req.query);
-    const accounts = lens === 'commerce' && platform === 'meta'
+    const withLpv = req.query.lpv === '1' && TREND_LPV[platform];
+    const metrics = withLpv ? [...TREND_BASE, TREND_LPV[platform]] : TREND_BASE;
+
+    const market = detectMarket(campaign);
+    const all = lens === 'commerce' && platform === 'meta'
       ? [...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD]
       : ALL_ACCOUNTS[platform];
+    const own = lens === 'commerce' && platform === 'meta'
+      ? all.filter(a => CPAS_MARKET[a] === market)
+      : [ACCOUNTS[platform]?.[market]].filter(Boolean);
+    const others = all.filter(a => !own.includes(a));
 
-    const result = await cached(`trend_${lens}_${platform}_${campaign}_${range.startDate}_${range.endDate}`, async () => {
-      const raw = await makeQuery(accounts, TREND_METRICS[platform], range, {
+    const result = await cached(`trend_${lens}_${platform}_${withLpv ? 'lpv' : 'base'}_${campaign}_${range.startDate}_${range.endDate}`, async () => {
+      const opts = {
         dimensions: ['date'],
         filters: [{ fieldId: 'campaign_name', operator: 'equals', value: campaign }],
         priority: PRIORITY.user, // the user is waiting on this one
-      });
+      };
+      const hasData = r => (r?.data || []).some(row => parseFloat(row.amount_spent) > 0 || parseFloat(row.impressions) > 0);
+      let raw = own.length ? await makeQuery(own, metrics, range, opts) : null;
+      // Not in the expected account (e.g. an ID_ campaign run from the SG account): search the rest
+      if (!hasData(raw) && others.length) {
+        console.log(`[trend] ${campaign} not found in ${own.join(',') || 'no matching account'} — searching ${others.length} other accounts`);
+        raw = await makeQuery(others, metrics, range, opts);
+      }
       const byDate = new Map();
       for (const row of raw?.data || []) {
         const r = Object.fromEntries(Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v]));
@@ -322,7 +338,7 @@ app.get('/api/trend', async (req, res) => {
         const date = isoDay(t);
         days.push({ date, ...(byDate.get(date) || { spend: 0, impressions: 0, clicks: 0, landing_page_views: 0 }) });
       }
-      return { campaign, platform, lens, dateRange: range, days };
+      return { campaign, platform, lens, dateRange: range, days, hasLpv: !!withLpv };
     });
 
     res.json(result);
