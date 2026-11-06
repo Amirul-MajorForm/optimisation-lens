@@ -82,9 +82,10 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0,
         }}>
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <circle cx="6.5" cy="6.5" r="4" stroke="white" strokeWidth="1.5"/>
-            <path d="M9.5 9.5L13 13" stroke="white" strokeWidth="1.8" strokeLinecap="round"/>
+          {/* MajorView: eye */}
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/>
+            <circle cx="12" cy="12" r="3" fill="white"/>
           </svg>
         </div>
         <span style={{
@@ -94,7 +95,7 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           color: S.textActive,
           letterSpacing: '-0.01em',
         }}>
-          Optimisation Lens
+          MajorView
         </span>
       </div>
 
