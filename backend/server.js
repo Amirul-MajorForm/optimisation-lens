@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
-import { TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
+import { PRIORITY, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -50,7 +50,7 @@ function resolveDateRange(query) {
 }
 
 // opts.dimensions defaults to per-campaign rows; opts.filters narrows the query
-const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'], filters } = {}) => queryTMR(TMR_API_KEY, TEAM_ID, {
+const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'], filters, priority } = {}) => queryTMR(TMR_API_KEY, TEAM_ID, {
   accounts,
   dimensions,
   metrics,
@@ -59,7 +59,7 @@ const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'
   sort: dimensions.includes('date')
     ? [{ fieldId: 'date', direction: 'asc' }]
     : [{ fieldId: 'amount_spent', direction: 'desc' }],
-});
+}, { priority });
 
 const DAY = 86400000;
 const isoDay = t => new Date(t).toISOString().slice(0, 10);
@@ -220,7 +220,7 @@ app.get('/api/dashboard', async (req, res) => {
 // (cached for an hour since that data is historical).
 const PREVIOUS_PERIOD_TTL = 60 * 60 * 1000;
 
-function fetchGoalData(sheet, range, ttl = CACHE_TTL) {
+function fetchGoalData(sheet, range, ttl = CACHE_TTL, priority = PRIORITY.normal) {
   // Which platform/market accounts have goals
   const wanted = {};
   for (const g of sheet.goals) {
@@ -232,7 +232,7 @@ function fetchGoalData(sheet, range, ttl = CACHE_TTL) {
   return cached(`goaldata_${range.startDate}_${range.endDate}_${key}`, async () => {
     const raw = {};
     for (const [platform, accounts] of Object.entries(wanted)) {
-      raw[platform] = splitByMarket(await makeQuery([...accounts], GOAL_METRICS[platform], range));
+      raw[platform] = splitByMarket(await makeQuery([...accounts], GOAL_METRICS[platform], range, { priority }));
     }
     const markets = Object.fromEntries(Object.entries(MARKETS).map(([code, cfg]) => [code,
       Object.fromEntries(['tiktok', 'meta', 'google'].map(platform => [platform, {
@@ -257,7 +257,7 @@ app.get('/api/goals', async (req, res) => {
     let previous = null, previousError = null;
     if (withTrend) {
       // Previous period is only for the trend; goals still show if it fails
-      try { previous = await fetchGoalData(sheet, prevRange, PREVIOUS_PERIOD_TTL); }
+      try { previous = await fetchGoalData(sheet, prevRange, PREVIOUS_PERIOD_TTL, PRIORITY.background); }
       catch (err) { previousError = err.message; console.error('[goals previous period]', err.message); }
     }
 
@@ -304,6 +304,7 @@ app.get('/api/trend', async (req, res) => {
       const raw = await makeQuery(accounts, TREND_METRICS[platform], range, {
         dimensions: ['date'],
         filters: [{ fieldId: 'campaign_name', operator: 'equals', value: campaign }],
+        priority: PRIORITY.user, // the user is waiting on this one
       });
       const byDate = new Map();
       for (const row of raw?.data || []) {

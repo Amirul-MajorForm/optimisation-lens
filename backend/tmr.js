@@ -86,30 +86,63 @@ export function getDateRange(days) {
   return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
 }
 
-// All TMR requests (Brand and Commerce, any user) go through one queue so they
-// never run concurrently, start at least TMR_GAP_MS apart, and stay under TMR's
-// run-query limit of 15 requests per minute (avoids 429s).
+// All TMR requests (any user) go through one queue so they never run
+// concurrently, start at least TMR_GAP_MS apart, and stay under TMR's run-query
+// limit of 15 requests per minute (avoids 429s).
+//
+// The queue is prioritised so what a user just clicked is never stuck behind
+// background work:
+//   PRIORITY.user       0  a chart the user just opened
+//   PRIORITY.normal     1  tables, Commerce Lens, goals
+//   PRIORITY.background 2  previous-period goal trend
+export const PRIORITY = { user: 0, normal: 1, background: 2 };
+
 const TMR_GAP_MS = 1500;
 const TMR_MAX_PER_MIN = 14;
-let tmrQueue = Promise.resolve();
+const pending = [];
+let seq = 0;
+let busy = false;
 let lastStart = 0;
 const recentStarts = [];
 
-export function queryTMR(apiKey, teamId, body) {
-  const run = tmrQueue.then(async () => {
-    const wait = lastStart + TMR_GAP_MS - Date.now();
-    if (wait > 0) await new Promise(r => setTimeout(r, wait));
-    while (recentStarts.length && Date.now() - recentStarts[0] > 60000) recentStarts.shift();
-    if (recentStarts.length >= TMR_MAX_PER_MIN) {
-      await new Promise(r => setTimeout(r, recentStarts[0] + 60000 - Date.now() + 50));
-      recentStarts.shift();
+export function queryTMR(apiKey, teamId, body, { priority = PRIORITY.normal } = {}) {
+  return new Promise((resolve, reject) => {
+    pending.push({ priority, seq: seq++, apiKey, teamId, body, resolve, reject });
+    pump();
+  });
+}
+
+// Per-minute request budget by priority: background work can never use up the
+// whole TMR allowance, so there is always room for what a user just clicked.
+const LIMIT_BY_PRIORITY = { 0: TMR_MAX_PER_MIN, 1: 12, 2: 9 };
+
+async function pump() {
+  if (busy || !pending.length) return;
+  busy = true;
+  try {
+    let job = null;
+    while (!job) {
+      const gap = lastStart + TMR_GAP_MS - Date.now();
+      if (gap > 0) await new Promise(r => setTimeout(r, gap));
+      while (recentStarts.length && Date.now() - recentStarts[0] > 60000) recentStarts.shift();
+      // Most urgent job that still fits its per-minute budget
+      pending.sort((x, y) => x.priority - y.priority || x.seq - y.seq);
+      const idx = pending.findIndex(j => recentStarts.length < (LIMIT_BY_PRIORITY[j.priority] ?? TMR_MAX_PER_MIN));
+      if (idx >= 0) { job = pending.splice(idx, 1)[0]; break; }
+      // Nothing fits: wait for a slot, re-checking often so a request that
+      // arrives meanwhile (e.g. a chart the user just opened) is picked up at once
+      const untilFree = recentStarts[0] + 60000 - Date.now() + 50;
+      await new Promise(r => setTimeout(r, Math.max(50, Math.min(untilFree, 500))));
     }
     lastStart = Date.now();
     recentStarts.push(lastStart);
-    return queryTMRDirect(apiKey, teamId, body);
-  });
-  tmrQueue = run.catch(() => {}); // keep the queue going after a failure
-  return run;
+    if (pending.length) console.log(`[TMR] queue: ${pending.length} waiting (running priority ${job.priority}, ${recentStarts.length} used this minute)`);
+    try { job.resolve(await queryTMRDirect(job.apiKey, job.teamId, job.body)); }
+    catch (err) { job.reject(err); }
+  } finally {
+    busy = false;
+    pump();
+  }
 }
 
 // TMR stops a query after ~60s (HTTP 504); give up slightly later so a stalled

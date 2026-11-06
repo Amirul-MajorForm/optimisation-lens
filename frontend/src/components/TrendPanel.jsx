@@ -286,7 +286,14 @@ export default function TrendPanel({ target, params, goals, theme, darkMode, onC
             </div>
           )}
 
-          {state.loading && <div style={{ height: 260, borderRadius: 10, background: theme.surfaceAlt, animation: 'kpi-pulse 1.6s ease-in-out infinite' }} />}
+          {state.loading && (
+            <div style={{ height: 260, borderRadius: 10, background: theme.surfaceAlt, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: theme.textMuted, fontSize: 13 }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={theme.accent} strokeWidth="2.5" strokeLinecap="round" style={{ animation: 'spin 0.9s linear infinite' }} aria-hidden="true">
+                <path d="M12 3a9 9 0 1 0 9 9" />
+              </svg>
+              Loading daily data from Two Minute Reports…
+            </div>
+          )}
           {state.error && <div style={{ padding: '40px 0', textAlign: 'center', color: darkMode ? '#fca5a5' : '#991b1b', fontSize: 13 }}>Could not load trend: {state.error}</div>}
           {!state.loading && !state.error && withData.length === 0 && (
             <div style={{ padding: '40px 0', textAlign: 'center', color: theme.textMuted, fontSize: 13 }}>No {metric} data for this campaign in this period</div>
