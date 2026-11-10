@@ -149,14 +149,19 @@ function GoalCard({ g, theme, darkMode, trendPending }) {
   );
 }
 
-export default function GoalTracker({ theme, darkMode, goals, loading, error, previousRange, previousError, trendLoaded }) {
+export default function GoalTracker({ theme, darkMode, goals, loading, error, previousRange, previousError, trendLoaded, hiddenRows, marketName }) {
   const trendPending = !trendLoaded && !previousError;
   const [expanded, setExpanded] = useState(true);
   const list = goals || [];
   const scored = list.filter(g => g.onTrack != null);
   const onTrack = scored.filter(g => g.onTrack).length;
 
-  if (!loading && !error && list.length === 0) return null;
+  const hidden = hiddenRows?.length ? hiddenRows : null;
+  const hiddenNote = hidden && (
+    <div style={{ fontSize: 12.5, color: darkMode ? '#fcd34d' : '#92400e', background: darkMode ? 'rgba(252,211,77,0.08)' : '#fffbeb', border: `1px solid ${darkMode ? 'rgba(252,211,77,0.25)' : '#fde68a'}`, borderRadius: 8, padding: '8px 12px', marginBottom: 12, lineHeight: 1.5 }}>
+      Row{hidden.length > 1 || hidden[0].includes('–') ? 's' : ''} {hidden.join(', ')} of the "Pacing - OS Brand" goals sheet {hidden.length > 1 || hidden[0].includes('–') ? 'are' : 'is'} hidden (usually a filter in Google Sheets), so {hidden.length > 1 || hidden[0].includes('–') ? 'their' : 'its'} goals can't be read. Turn the filter off (Data → Remove filter), or use Data → Filter views, which doesn't hide rows for everyone.
+    </div>
+  );
 
   const fmtD = s => new Date(`${s}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
@@ -170,7 +175,7 @@ export default function GoalTracker({ theme, darkMode, goals, loading, error, pr
           Goal Tracking
         </span>
         <span style={{ fontSize: 13, color: theme.textMuted }}>
-          {loading ? 'Loading goals…' : error ? '' : `${onTrack} of ${scored.length} on track`}
+          {loading ? 'Loading goals…' : error ? '' : list.length === 0 ? 'No goals' : `${onTrack} of ${scored.length} on track`}
           {!loading && previousRange && (trendPending ? ' · loading trend…' : ` · trend vs ${fmtD(previousRange.startDate)} – ${fmtD(previousRange.endDate)}`)}
         </span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
@@ -190,6 +195,12 @@ export default function GoalTracker({ theme, darkMode, goals, loading, error, pr
               {[0, 1, 2].map(i => (
                 <div key={i} style={{ height: 190, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 12, animation: 'kpi-pulse 1.6s ease-in-out infinite' }} />
               ))}
+            </div>
+          )}
+          {hiddenNote}
+          {!loading && !error && list.length === 0 && (
+            <div style={{ fontSize: 13, color: theme.textMuted }}>
+              No goals for {marketName || 'this market'} in the MajorPace sheet{hidden ? ' that the dashboard can see' : ''}.
             </div>
           )}
           {list.length > 0 && (

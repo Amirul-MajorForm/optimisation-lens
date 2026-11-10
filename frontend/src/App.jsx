@@ -283,6 +283,8 @@ export default function App() {
                     error={goalsError}
                     previousRange={goals?.data?.previousRange}
                     previousError={goals?.data?.previousError}
+                    hiddenRows={goals?.data?.hiddenRows}
+                    marketName={marketName}
                     trendLoaded={goals?.params === fetchParams && !!goals.data?.trendLoaded}
                   />
                   <CampaignTable theme={theme} data={marketData} loading={loading} onTrend={setTrendTarget} />

@@ -117,9 +117,28 @@ export function parseGoalRows(rows) {
   });
 }
 
+// The published sheet leaves out rows hidden by a filter in Google Sheets. The
+// first cell of each published row is its sheet row number, so gaps after the
+// header mean hidden rows (whose goals can't be read). Returns e.g. ['4–11', '18–19'].
+export function findHiddenRows(rows) {
+  const header = rows.findIndex(r => r.includes('Campaign Name') && r.includes('Goal'));
+  const nums = rows.map(r => parseInt(r[0], 10));
+  if (header < 0 || !Number.isFinite(nums[header])) return [];
+  const seen = nums.slice(header + 1).filter(Number.isFinite);
+  if (!seen.length) return [];
+  const present = new Set(seen);
+  const ranges = [];
+  let start = null;
+  for (let n = nums[header] + 1; n <= Math.max(...seen); n++) {
+    if (!present.has(n)) { if (start == null) start = n; }
+    else if (start != null) { ranges.push(start === n - 1 ? `${start}` : `${start}–${n - 1}`); start = null; }
+  }
+  return ranges;
+}
+
 export async function loadGoalSheet() {
   const [brandRows, fxRows] = await Promise.all([fetchTab(GOAL_TABS.brand), fetchTab(GOAL_TABS.fx)]);
-  return { goals: parseGoalRows(brandRows), fx: parseFx(fxRows) };
+  return { goals: parseGoalRows(brandRows), fx: parseFx(fxRows), hiddenRows: findHiddenRows(brandRows) };
 }
 
 // ---------------------------------------------------------------- scoring

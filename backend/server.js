@@ -295,6 +295,7 @@ app.get('/api/goals', async (req, res) => {
       previousRange: prevRange,
       trendLoaded: withTrend && !previousError,
       previousError,
+      hiddenRows: sheet.hiddenRows || [],
     });
   } catch (err) {
     console.error('[goals error]', err.message);
