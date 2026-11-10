@@ -3,13 +3,18 @@
 // A mega sale is a double date in the ad name where day == month, e.g.
 //   GIF_Offer_NA_9.9 Lantern Sale      -> 9.9
 //   GIF_1126_NA_Prospecting_11.11_EN   -> 11.11
-// Ads without one (e.g. "October ICD", "Jan New Year Sale") are not mega sales.
+// Ads without one (e.g. "October ICD", "Jan New Year Sale") are not mega sales,
+// and neither is any ad marked BAU (business as usual), e.g. "4.4 BAU".
 
 const SALE_RE = /(?<![\d.])(1[0-2]|[1-9])\.(1[0-2]|[1-9])(?![\d.])/g;
+
+// "BAU" as a whole word, with spaces or underscores around it
+const BAU_RE = /(?:^|[^a-z])bau(?:[^a-z]|$)/i;
 
 // Returns { label: '9.9', month: 9, theme: 'Lantern Sale' } or null
 export function detectSale(adName) {
   const name = adName || '';
+  if (BAU_RE.test(name)) return null;
   for (const m of name.matchAll(SALE_RE)) {
     if (m[1] !== m[2]) continue; // 9.9 yes, 9.10 no
     const label = `${m[1]}.${m[2]}`;
@@ -73,9 +78,14 @@ export function groupSales(rows) {
       ads: [...s.ads.values()].map(rates).sort((a, b) => b.spend - a.spend),
     }));
 
-  // Change vs the previous sale, for the bird's-eye comparison
+  // Token-spend sales (under 20% of the average sale's spend, e.g. SGD 4 at
+  // 87x ROAS) are flagged and never used as the comparison point
+  const avg = list.length ? list.reduce((a, s) => a + s.spend, 0) / list.length : 0;
+  list.forEach(s => { s.lowSpend = s.spend < avg * 0.2; });
+
+  // Change vs the previous sale that actually ran, for the bird's-eye comparison
   list.forEach((s, i) => {
-    const p = list[i - 1];
+    const p = list.slice(0, i).reverse().find(x => !x.lowSpend);
     const pct = (a, b) => (a != null && b > 0 ? ((a - b) / b) * 100 : null);
     s.vsPrevious = p ? { label: p.label, spend: pct(s.spend, p.spend), orders: pct(s.orders, p.orders), roas: pct(s.roas, p.roas) } : null;
   });

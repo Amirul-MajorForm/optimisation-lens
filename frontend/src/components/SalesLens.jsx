@@ -117,7 +117,7 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
   // Highest value; for ROAS ignore sales with a token spend (e.g. SGD 4 for 87x)
   // so "best" means a sale that actually ran: at least 20% of the average spend
   const avgSpend = sales.length ? sales.reduce((a, s) => a + s.spend, 0) / sales.length : 0;
-  const isLowSpend = s => s.spend < avgSpend * 0.2;
+  const isLowSpend = s => s.lowSpend ?? s.spend < avgSpend * 0.2;
   const idxBest = key => {
     let best = null;
     sales.forEach((s, i) => {
@@ -180,7 +180,7 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                   <th style={{ ...th, textAlign: 'right' }}>ROAS</th>
                   <th style={{ ...th, textAlign: 'right' }}>Revenue</th>
                   <th style={{ ...th, textAlign: 'right' }}>CPA</th>
-                  <th style={{ ...th, textAlign: 'right' }} title="Change vs the previous mega sale">vs prev · Spend</th>
+                  <th style={{ ...th, textAlign: 'right' }} title="Change vs the previous mega sale that wasn't LOW SPEND">vs prev · Spend</th>
                   <th style={{ ...th, textAlign: 'right' }}>Orders</th>
                   <th style={{ ...th, textAlign: 'right' }}>ROAS</th>
                 </tr>
@@ -217,7 +217,10 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                         <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{fmtRoas(s.roas)}</td>
                         <td style={{ ...td, textAlign: 'right', color: theme.textSecondary }}>{fmtSgd(s.revenue)}</td>
                         <td style={{ ...td, textAlign: 'right', color: theme.textSecondary }}>{fmtSgd(s.cpa)}</td>
-                        <td style={{ ...td, textAlign: 'right' }}><Delta pct={s.vsPrevious?.spend} theme={theme} darkMode={darkMode} /></td>
+                        <td style={{ ...td, textAlign: 'right' }}>
+                          <Delta pct={s.vsPrevious?.spend} theme={theme} darkMode={darkMode} />
+                          {s.vsPrevious && <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }}>vs {s.vsPrevious.label}</span>}
+                        </td>
                         <td style={{ ...td, textAlign: 'right' }}><Delta pct={s.vsPrevious?.orders} theme={theme} darkMode={darkMode} /></td>
                         <td style={{ ...td, textAlign: 'right' }}><Delta pct={s.vsPrevious?.roas} theme={theme} darkMode={darkMode} /></td>
                       </tr>
