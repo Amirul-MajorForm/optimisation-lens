@@ -229,15 +229,25 @@ export function parsePlatformResult(tmrResponse) {
       Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v])
     );
     if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
+    // TikTok GMV Max campaigns report spend only as gmv_cost
+    if (!(parseFloat(out.spend) > 0) && parseFloat(out.gmv_cost) > 0) out.spend = out.gmv_cost;
+    // One orders / revenue field across sources (first one with data wins)
+    const firstNum = keys => { for (const k of keys) { const n = parseFloat(out[k]); if (n > 0) return n; } return 0; };
+    out.orders  = firstNum(['gmv_orders', 'collab_action_omni_purchase', 'all_purchases', 'conversions', 'metrics_conversions']);
+    out.revenue = firstNum(['gmv_gross_revenue', 'collab_ads_value_omni_purchase', 'purchase_conversions_all', 'metrics_conversions_value']);
     // One landing-page-view field across platforms (TikTok / Meta name it differently)
     if (out.landing_page_views == null) out.landing_page_views = out.total_landing_page_view ?? out.website_fb_landing_page_views;
     // Derive rate metrics per row (TMR doesn't return these at row level)
     const sp  = parseFloat(out.spend) || 0;
     const imp = parseFloat(out.impressions) || 0;
     const cl  = parseFloat(out.clicks) || 0;
-    if (!out.ctr || out.ctr === 0) out.ctr = imp > 0 ? (cl / imp) * 100        : 0;
-    if (!out.cpm || out.cpm === 0) out.cpm = imp > 0 ? (sp / imp) * 1000       : 0;
-    if (!out.cpc || out.cpc === 0) out.cpc = cl  > 0 ?  sp / cl                : 0;
+    // null (shown as "—") when there is nothing to divide by, e.g. GMV Max
+    // campaigns that report no impressions
+    if (!out.ctr || out.ctr === 0) out.ctr = imp > 0 ? (cl / imp) * 100        : null;
+    if (!out.cpm || out.cpm === 0) out.cpm = imp > 0 ? (sp / imp) * 1000       : null;
+    if (!out.cpc || out.cpc === 0) out.cpc = cl  > 0 ?  sp / cl                : null;
+    out.roas = sp > 0 && out.revenue > 0 ? out.revenue / sp : null;
+    out.cpa  = out.orders > 0 ? sp / out.orders : null;
     return out;
   });
 
@@ -261,9 +271,13 @@ export function parsePlatformResult(tmrResponse) {
     landing_page_views: sum('landing_page_views'),
     video_watched_6s:   sum('video_watched_6s'),
     video_thruplay_watched_actions: sum('video_thruplay_watched_actions'),
-    ctr:  impTotal   > 0 ? (clickTotal / impTotal) * 100        : 0,
-    cpm:  impTotal   > 0 ? (spendTotal / impTotal) * 1000       : 0,
-    cpc:  clickTotal > 0 ?  spendTotal / clickTotal             : 0,
+    orders:             sum('orders'),
+    revenue:            sum('revenue'),
+    roas: spendTotal > 0 && sum('revenue') > 0 ? sum('revenue') / spendTotal : null,
+    cpa:  sum('orders') > 0 ? spendTotal / sum('orders') : null,
+    ctr:  impTotal   > 0 ? (clickTotal / impTotal) * 100        : null,
+    cpm:  impTotal   > 0 ? (spendTotal / impTotal) * 1000       : null,
+    cpc:  clickTotal > 0 ?  spendTotal / clickTotal             : null,
   };
 
   return { campaigns, total };

@@ -119,6 +119,12 @@ async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
     return await queryOnce(accounts, metrics, dateRange, opts);
   } catch (err) {
     const dropped = metrics.filter(m => NON_ADDITIVE.includes(m));
+    const unknown = [...String(err.message).matchAll(/Unknown field "([^"]+)"/gi)].map(m => m[1])
+      .filter(f => metrics.includes(f) && !CORE_FIELDS.includes(f));
+    if (err.status === 400 && unknown.length) {
+      console.warn(`[TMR] dropping unknown field(s) ${unknown.join(', ')} and retrying`);
+      return makeQuerySplit(accounts, metrics.filter(m => !unknown.includes(m)), dateRange, opts);
+    }
     if (/aggregated/i.test(err.message) && dropped.length) {
       console.warn(`[TMR] ${dropped.join(', ')} cannot be aggregated for this range — retrying without it`);
       return makeQuerySplit(accounts, metrics.filter(m => !dropped.includes(m)), dateRange, opts);
@@ -146,9 +152,22 @@ async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
 // every connector; platform-specific fields must carry the connector prefix
 // (e.g. ttads_video_play_actions). parsePlatformResult strips the prefix again.
 // Landing page views feed the CPLV column for traffic campaigns
-const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views', 'fads_website_fb_landing_page_views'];
-const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach', 'ttads_total_landing_page_view'];
-const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks'];
+// Orders / revenue feed ROAS and CPA in Commerce Lens:
+//   TikTok GMV Max: spend is only reported as gmv_cost (amount_spent is blank)
+//   Meta brand:     purchases (all) / purchase value (all)
+//   Google:         conversions / conversion value
+//   Meta CPAS:      collaborative-ads purchases / purchase value (CPAS_METRICS)
+const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views', 'fads_website_fb_landing_page_views',
+                        'fads_all_purchases', 'fads_purchase_conversions_all'];
+const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach', 'ttads_total_landing_page_view',
+                        'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'];
+const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks', 'conversions', 'gadw_metrics_conversions_value'];
+const CPAS_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views',
+                        'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'];
+
+// Fields every query needs; any other field TMR rejects as unknown is dropped
+// and the query retried, so one bad optional field never breaks a whole tab.
+const CORE_FIELDS = ['amount_spent', 'impressions', 'clicks'];
 
 // Goal tracking needs heavier metrics (landing page views, 6-second views,
 // ThruPlays). They are fetched separately, only for accounts that have goals,
@@ -281,6 +300,7 @@ app.get('/api/goals', async (req, res) => {
 //   - spend / impressions / clicks for CPM and CTR; landing page views (heavy on
 //     Meta) only when the CPLV tab asks for them (?lpv=1)
 const TREND_BASE = ['amount_spent', 'impressions', 'clicks'];
+const TREND_EXTRA = { tiktok: ['ttads_gmv_cost'] }; // GMV Max spend
 const TREND_LPV = { tiktok: 'ttads_total_landing_page_view', meta: 'fads_website_fb_landing_page_views' };
 const TREND_METRICS = { tiktok: true, meta: true, google: true };
 
@@ -298,7 +318,7 @@ app.get('/api/trend', async (req, res) => {
     if (!TREND_METRICS[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
     const range = resolveDateRange(req.query);
     const withLpv = req.query.lpv === '1' && TREND_LPV[platform];
-    const metrics = withLpv ? [...TREND_BASE, TREND_LPV[platform]] : TREND_BASE;
+    const metrics = [...TREND_BASE, ...(TREND_EXTRA[platform] || []), ...(withLpv ? [TREND_LPV[platform]] : [])];
 
     const market = detectMarket(campaign);
     const all = lens === 'commerce' && platform === 'meta'
@@ -315,7 +335,7 @@ app.get('/api/trend', async (req, res) => {
         filters: [{ fieldId: 'campaign_name', operator: 'equals', value: campaign }],
         priority: PRIORITY.user, // the user is waiting on this one
       };
-      const hasData = r => (r?.data || []).some(row => parseFloat(row.amount_spent) > 0 || parseFloat(row.impressions) > 0);
+      const hasData = r => (r?.data || []).some(row => parseFloat(row.amount_spent) > 0 || parseFloat(row.ttads_gmv_cost) > 0 || parseFloat(row.impressions) > 0);
       let raw = own.length ? await makeQuery(own, metrics, range, opts) : null;
       // Not in the expected account (e.g. an ID_ campaign run from the SG account): search the rest
       if (!hasData(raw) && others.length) {
@@ -326,7 +346,7 @@ app.get('/api/trend', async (req, res) => {
       for (const row of raw?.data || []) {
         const r = Object.fromEntries(Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v]));
         byDate.set(normalizeDate(r.date), {
-          spend: parseFloat(r.amount_spent) || 0,
+          spend: parseFloat(r.amount_spent) || parseFloat(r.gmv_cost) || 0,
           impressions: parseFloat(r.impressions) || 0,
           clicks: parseFloat(r.clicks) || 0,
           landing_page_views: parseFloat(r.total_landing_page_view ?? r.website_fb_landing_page_views) || 0,
@@ -357,8 +377,8 @@ app.get('/api/commerce', async (req, res) => {
     const dateRangeObj = resolveDateRange(req.query);
 
     const result = await cached(`commerce_${dateRangeObj.startDate}_${dateRangeObj.endDate}`, async () => {
-      const localRaw = await makeQuery(CPAS_ACCOUNTS.local, META_METRICS, dateRangeObj);
-      const sgdRaw   = await makeQuery(CPAS_ACCOUNTS.SGD, META_METRICS, dateRangeObj);
+      const localRaw = await makeQuery(CPAS_ACCOUNTS.local, CPAS_METRICS, dateRangeObj);
+      const sgdRaw   = await makeQuery(CPAS_ACCOUNTS.SGD, CPAS_METRICS, dateRangeObj);
 
       const localSplit = splitByMarket(localRaw);
       const sgdSplit   = splitByMarket(sgdRaw);

@@ -63,6 +63,8 @@ export function fmt(value, type, currency) {
       return Number(value).toLocaleString('en-US', { maximumFractionDigits: 0 });
     case 'percent':
       return `${Number(value).toFixed(2)}%`;
+    case 'roas':
+      return `${Number(value).toFixed(2)}x`;
     case 'compact': {
       const n = Number(value);
       if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;

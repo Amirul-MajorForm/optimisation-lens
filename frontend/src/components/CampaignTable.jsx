@@ -19,7 +19,29 @@ const COLUMNS = [
 const METRIC_COL_WIDTH = 86;
 const CAMPAIGN_COL_MIN = 170;
 const colWidth = col => col.width ?? METRIC_COL_WIDTH;
-const TABLE_MIN_WIDTH = CAMPAIGN_COL_MIN + COLUMNS.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
+const minWidthOf = cols => CAMPAIGN_COL_MIN + cols.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
+
+// Commerce Lens: sales outcome first. Same widths as Brand so tables still line up.
+const COMMERCE_COLUMNS = [
+  { key: 'campaign_name', label: 'Campaign', align: 'left',  grow: true, format: null },
+  { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 126 },
+  { key: 'revenue',       label: 'Revenue',  align: 'right', format: 'currency', width: 126 },
+  { key: 'roas',          label: 'ROAS',     align: 'right', format: 'roas',     title: 'Return on ad spend = revenue / spend' },
+  { key: 'orders',        label: 'Orders',   align: 'right', format: 'number' },
+  { key: 'cpa',           label: 'CPA',      align: 'right', format: 'currency', title: 'Cost per acquisition = spend / orders' },
+  { key: 'impressions',   label: 'Impr.',    align: 'right', format: 'compact' },
+  { key: 'ctr',           label: 'CTR',      align: 'right', format: 'percent' },
+  { key: 'cpm',           label: 'CPM',      align: 'right', format: 'currency' },
+];
+
+const COMMERCE_KPIS = [
+  { key: 'spend',   label: 'Spend',   format: 'currency' },
+  { key: 'revenue', label: 'Revenue', format: 'currency' },
+  { key: 'roas',    label: 'ROAS',    format: 'roas' },
+  { key: 'orders',  label: 'Orders',  format: 'number' },
+  { key: 'cpa',     label: 'CPA',     format: 'currency' },
+  { key: 'cpm',     label: 'CPM',     format: 'currency' },
+];
 
 // Traffic campaigns are named ..._Traffic_... (e.g. SG_Meta_OATSIDE_Consideration_CPLV_Traffic_2026_Coffee)
 export const isTrafficCampaign = name => /_traffic(_|$)/i.test(name || '');
@@ -128,13 +150,13 @@ function KPIRow({ kpis, total, theme, currency }) {
   );
 }
 
-export function PlatformSection({ platform, label, data, theme, loading, lens = 'brand', onTrend }) {
+export function PlatformSection({ platform, label, data, theme, loading, lens = 'brand', onTrend, variant = 'brand' }) {
   const [sortKey, setSortKey] = useState('spend');
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
 
   const config = PLATFORM_CONFIG[platform];
-  const columns = COLUMNS;
+  const columns = variant === 'commerce' ? COMMERCE_COLUMNS : COLUMNS;
   if (!config) return null;
 
   const { campaigns = [], total = {}, currency = 'SGD' } = data || {};
@@ -196,14 +218,14 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
       {expanded && (
         <>
           <KPIRow
-            kpis={config.kpis.filter(k => !k.optional || (k.key === 'cplv' && kpiTotal.cplv != null))}
+            kpis={variant === 'commerce' ? COMMERCE_KPIS : config.kpis.filter(k => !k.optional || (k.key === 'cplv' && kpiTotal.cplv != null))}
             total={kpiTotal}
             theme={theme}
             currency={currency}
           />
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: TABLE_MIN_WIDTH, tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12.5 }}>
+            <table style={{ width: '100%', minWidth: minWidthOf(columns), tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <colgroup>
                 {columns.map(col => (
                   <col key={col.key} style={col.grow ? undefined : { width: colWidth(col) }} />

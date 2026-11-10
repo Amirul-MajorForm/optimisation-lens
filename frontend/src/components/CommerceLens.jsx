@@ -16,7 +16,7 @@ export default function CommerceLens({ theme, commerce, campaigns, loading, onTr
   const campaignSections = CAMPAIGN_PLATFORMS.filter(p => campaigns?.[p.key]?.campaigns?.length > 0);
 
   if (loading && cpas.length === 0) {
-    return <PlatformSection platform="meta" label="Meta CPAS" data={null} theme={theme} loading />;
+    return <PlatformSection platform="meta" label="Meta CPAS" data={null} theme={theme} loading variant="commerce" />;
   }
 
   if (cpas.length === 0 && campaignSections.length === 0) {
@@ -47,6 +47,7 @@ export default function CommerceLens({ theme, commerce, campaigns, loading, onTr
           loading={loading}
           lens="commerce"
           onTrend={onTrend}
+          variant="commerce"
         />
       ))}
       {campaignSections.map(p => (
@@ -59,6 +60,7 @@ export default function CommerceLens({ theme, commerce, campaigns, loading, onTr
           loading={loading}
           lens="brand"
           onTrend={onTrend}
+          variant="commerce"
         />
       ))}
     </div>
