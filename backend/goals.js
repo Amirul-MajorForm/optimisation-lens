@@ -40,11 +40,43 @@ export function parsePublishedTable(html) {
   );
 }
 
+// Minimal RFC 4180 CSV parser: quoted fields, "" escapes, commas/newlines in quotes
+export function parseCsv(text) {
+  const rows = [];
+  let row = [], field = '', quoted = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quoted) {
+      if (c === '"' && text[i + 1] === '"') { field += '"'; i++; }
+      else if (c === '"') quoted = false;
+      else field += c;
+    } else if (c === '"') quoted = true;
+    else if (c === ',') { row.push(field.trim()); field = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && text[i + 1] === '\n') i++;
+      row.push(field.trim()); rows.push(row); row = []; field = '';
+    } else field += c;
+  }
+  if (field || row.length) { row.push(field.trim()); rows.push(row); }
+  return rows;
+}
+
+// Read a published tab. The CSV export includes rows hidden by a filter in
+// Google Sheets (the HTML view leaves them out), so it is tried first; the HTML
+// view is the fallback, where hidden rows are detected and reported instead.
 async function fetchTab(gid) {
-  const url = `${PUB_BASE}/pubhtml/sheet?headers=false&gid=${gid}`;
-  const res = await fetch(url, { redirect: 'follow', signal: AbortSignal.timeout(20000) });
-  if (!res.ok) throw new Error(`Goals sheet tab ${gid}: HTTP ${res.status}`);
-  return parsePublishedTable(await res.text());
+  try {
+    const res = await fetch(`${PUB_BASE}/pub?gid=${gid}&single=true&output=csv`, { redirect: 'follow', signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const rows = parseCsv(await res.text());
+    if (!rows.length) throw new Error('empty CSV');
+    return rows;
+  } catch (err) {
+    console.warn(`[goals] CSV for tab ${gid} failed (${err.message}); using the HTML view`);
+    const res = await fetch(`${PUB_BASE}/pubhtml/sheet?headers=false&gid=${gid}`, { redirect: 'follow', signal: AbortSignal.timeout(20000) });
+    if (!res.ok) throw new Error(`Goals sheet tab ${gid}: HTTP ${res.status}`);
+    return parsePublishedTable(await res.text());
+  }
 }
 
 // ---------------------------------------------------------------- parsing helpers
