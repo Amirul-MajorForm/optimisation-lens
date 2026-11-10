@@ -111,6 +111,8 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
   const [hover, setHover] = useState(null);
   const [open, setOpen] = useState(() => new Set());
   const [showOther, setShowOther] = useState(false);
+  const [notes, setNotes] = useState(() => new Set());
+  const toggleNote = key => setNotes(n => { const x = new Set(n); x.has(key) ? x.delete(key) : x.add(key); return x; });
   const data = state?.data;
   const sales = data?.sales || [];
 
@@ -193,20 +195,34 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                       <tr
                         onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
                         style={{ borderTop: `1px solid ${theme.border}`, background: hover === i ? theme.surfaceHover : 'transparent' }}>
-                        <td style={{ ...td, whiteSpace: 'normal' }}>
+                        <td style={{ ...td, whiteSpace: 'normal', minWidth: 230 }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                           <button
                             onClick={() => setOpen(o => { const n = new Set(o); n.has(s.key) ? n.delete(s.key) : n.add(s.key); return n; })}
                             aria-expanded={isOpen}
-                            style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: theme.textPrimary, display: 'flex', alignItems: 'flex-start', gap: 6, textAlign: 'left' }}>
+                            style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: theme.textPrimary, display: 'inline-flex', alignItems: 'flex-start', gap: 6, textAlign: 'left', verticalAlign: 'top' }}>
                             <span style={{ display: 'inline-block', transition: 'transform 0.15s', transform: isOpen ? 'rotate(90deg)' : 'none', color: theme.textMuted }}>▸</span>
                             <span>
                               <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif" }}>{s.label}</span>
                               <span style={{ color: theme.textMuted }}> {s.year}</span>
-                              {isLowSpend(s) && <span title="Spend under 20% of the average sale: left out of best ROAS and the ROAS chart scale" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: theme.textMuted, background: theme.surfaceAlt, padding: '1px 6px', borderRadius: 4, cursor: 'help' }}>LOW SPEND</span>}
-                              {bestRoas === i && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: darkMode ? '#34d399' : '#047857', background: darkMode ? 'rgba(52,211,153,0.12)' : '#ecfdf5', padding: '1px 6px', borderRadius: 4 }}>BEST ROAS</span>}
+                              {isLowSpend(s) && <span title="Spend under 20% of the average sale: left out of best ROAS and the ROAS chart scale" style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: theme.textMuted, background: theme.surfaceAlt, padding: '1px 6px', borderRadius: 4, cursor: 'help', whiteSpace: 'nowrap' }}>LOW SPEND</span>}
+                              {bestRoas === i && <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: darkMode ? '#34d399' : '#047857', background: darkMode ? 'rgba(52,211,153,0.12)' : '#ecfdf5', padding: '1px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>BEST ROAS</span>}
                               {s.themes.length > 0 && <span style={{ display: 'block', fontSize: 11.5, color: theme.textSecondary }}>{s.themes.join(' · ')}</span>}
                             </span>
                           </button>
+                          {s.nonConversion && (
+                            <button
+                              onClick={() => toggleNote(s.key)}
+                              aria-expanded={notes.has(s.key)}
+                              aria-label={`About ${s.label}: includes non-conversion campaigns`}
+                              title="Includes ads from a non-conversion campaign. Click for details."
+                              style={{ border: 'none', background: 'none', padding: '2px 0 0', marginLeft: 6, cursor: 'pointer', color: notes.has(s.key) ? theme.accent : theme.textMuted, display: 'inline-flex', verticalAlign: 'top' }}>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="7.8" r="0.6" fill="currentColor" />
+                              </svg>
+                            </button>
+                          )}
+                          </div>
                         </td>
                         <td style={{ ...td, color: theme.textSecondary }}>
                           {fmtDay(s.firstDate)} – {fmtDay(s.lastDate)}
@@ -224,6 +240,19 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                         <td style={{ ...td, textAlign: 'right' }}><Delta pct={s.vsPrevious?.orders} theme={theme} darkMode={darkMode} /></td>
                         <td style={{ ...td, textAlign: 'right' }}><Delta pct={s.vsPrevious?.roas} theme={theme} darkMode={darkMode} /></td>
                       </tr>
+                      {s.nonConversion && notes.has(s.key) && (
+                        <tr style={{ background: theme.surfaceAlt }}>
+                          <td colSpan={10} style={{ padding: '8px 12px 10px 32px', fontSize: 12, color: theme.textSecondary, lineHeight: 1.5, whiteSpace: 'normal' }}>
+                            <span style={{ fontWeight: 600, color: theme.textPrimary }}>Note on {s.label}:</span>{' '}
+                            the totals include {s.nonConversion.campaigns.map((c, j) => (
+                              <span key={c.campaign}>
+                                {j > 0 && (j === s.nonConversion.campaigns.length - 1 ? ' and ' : ', ')}
+                                {fmtSgd(c.spend)} from a {c.objective} campaign (<BreakableName name={c.campaign} />, {fmtNum(c.orders)} orders, {fmtRoas(c.roas)} ROAS)
+                              </span>
+                            ))}. Conversion campaigns only: {fmtSgd(s.nonConversion.conversionOnly.spend)} · {fmtNum(s.nonConversion.conversionOnly.orders)} orders · {fmtRoas(s.nonConversion.conversionOnly.roas)} ROAS.
+                          </td>
+                        </tr>
+                      )}
                       {isOpen && s.ads.map(a => (
                         <tr key={`${s.key}-${a.campaign}-${a.ad}`} style={{ background: theme.surfaceAlt, fontSize: 12 }}>
                           <td colSpan={2} style={{ ...td, paddingLeft: 32, whiteSpace: 'normal', color: theme.textSecondary }}>

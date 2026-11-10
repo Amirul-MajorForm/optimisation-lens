@@ -27,12 +27,40 @@ export function detectSale(adName) {
 }
 
 const blank = () => ({ spend: 0, orders: 0, revenue: 0 });
+
+// Campaign objective from the name, e.g. ..._Traffic_... or ..._Conversion_...
+const isConversionCampaign = name => /_conversion(_|$)/i.test(name || '');
+const objectiveOf = name => (/_traffic(_|$)/i.test(name || '') ? 'traffic'
+  : /_(awareness|reach)(_|$)/i.test(name || '') ? 'awareness'
+  : /_consideration(_|$)/i.test(name || '') ? 'consideration' : 'non-conversion');
 const add = (t, r) => { t.spend += r.spend; t.orders += r.orders; t.revenue += r.revenue; };
 const rates = t => ({
   ...t,
   roas: t.spend > 0 && t.revenue > 0 ? t.revenue / t.spend : null,
   cpa: t.spend > 0 && t.orders > 0 ? t.spend / t.orders : null,
 });
+
+// Ads from non-conversion campaigns (e.g. a traffic campaign with a "5.5 New
+// Product Launch" ad) stay in the sale's totals, but are reported separately
+// with what the sale looks like without them, for the footnote.
+function nonConversionSplit(ads) {
+  const other = ads.filter(a => !isConversionCampaign(a.campaign));
+  if (!other.length) return { nonConversion: null };
+  const byCampaign = new Map();
+  for (const a of other) {
+    const c = byCampaign.get(a.campaign) || { campaign: a.campaign, objective: objectiveOf(a.campaign), ...blank() };
+    add(c, a);
+    byCampaign.set(a.campaign, c);
+  }
+  const conv = blank();
+  ads.filter(a => isConversionCampaign(a.campaign)).forEach(a => add(conv, a));
+  return {
+    nonConversion: {
+      campaigns: [...byCampaign.values()].map(rates).sort((a, b) => b.spend - a.spend),
+      conversionOnly: rates(conv),
+    },
+  };
+}
 
 // rows: [{ date, ad_name, campaign_name, spend, orders, revenue }] already in SGD
 export function groupSales(rows) {
@@ -76,6 +104,7 @@ export function groupSales(rows) {
       firstDate: s.firstDate, lastDate: s.lastDate, activeDays: s.activeDays.size,
       ...rates({ spend: s.spend, orders: s.orders, revenue: s.revenue }),
       ads: [...s.ads.values()].map(rates).sort((a, b) => b.spend - a.spend),
+      ...nonConversionSplit([...s.ads.values()]),
     }));
 
   // Token-spend sales (under 20% of the average sale's spend, e.g. SGD 4 at
