@@ -28,7 +28,7 @@ function useWidth(ref) {
 }
 
 // One measure across sales: bars, the best sale highlighted, hover shared
-function SaleBars({ title, sales, value, format, axisFormat, best, hover, setHover, theme, darkMode, isLowSpend }) {
+function SaleBars({ title, sales, value, format, axisFormat, best, hover, setHover, theme, darkMode, isLowSpend, total }) {
   const ref = useRef(null);
   const width = useWidth(ref);
   const H = 160, M = { top: 18, right: 8, bottom: 22, left: 46 };
@@ -50,7 +50,7 @@ function SaleBars({ title, sales, value, format, axisFormat, best, hover, setHov
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 2 }}>
         <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: theme.textMuted, fontFamily: "'Space Grotesk', sans-serif" }}>{title}</span>
         <span style={{ fontSize: 15, fontWeight: 700, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif" }}>
-          {hover != null ? `${sales[hover].label} · ${format(values[hover])}` : ''}
+          {hover != null ? `${sales[hover].label} · ${format(values[hover])}` : `All sales · ${format(total)}`}
         </span>
       </div>
       <div ref={ref}>
@@ -130,6 +130,13 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
   };
   const bestRoas = idxBest('roas');
 
+  const sum = k => sales.reduce((a, x) => a + (x[k] || 0), 0);
+  const total = { spend: sum('spend'), orders: sum('orders'), revenue: sum('revenue') };
+  total.roas = total.spend > 0 && total.revenue > 0 ? total.revenue / total.spend : null;
+  total.cpa = total.spend > 0 && total.orders > 0 ? total.spend / total.orders : null;
+  const firstRun = sales.map(x => x.firstDate).filter(Boolean).sort()[0];
+  const lastRun = sales.map(x => x.lastDate).filter(Boolean).sort().slice(-1)[0];
+
   const th = { padding: '8px 10px', fontSize: 10.5, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: theme.textMuted, fontFamily: "'Space Grotesk', sans-serif", whiteSpace: 'nowrap', borderBottom: `1px solid ${theme.border}` };
   const td = { padding: '10px 10px', whiteSpace: 'nowrap', verticalAlign: 'top' };
 
@@ -156,13 +163,13 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
         )}
         {sales.length > 0 && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
-            <SaleBars title="Spend" sales={sales} value={s => s.spend} format={fmtSgdShort}
+            <SaleBars title="Spend" sales={sales} value={s => s.spend} format={fmtSgdShort} total={total.spend}
               axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : Math.round(v))} best={idxBest('spend')}
               hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} />
-            <SaleBars title="Orders" sales={sales} value={s => s.orders} format={fmtNum}
+            <SaleBars title="Orders" sales={sales} value={s => s.orders} format={fmtNum} total={total.orders}
               axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : Math.round(v))} best={idxBest('orders')}
               hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} />
-            <SaleBars title="ROAS" sales={sales} value={s => s.roas} format={fmtRoas}
+            <SaleBars title="ROAS" sales={sales} value={s => s.roas} format={fmtRoas} total={total.roas}
               axisFormat={v => `${+v.toFixed(1)}x`} best={bestRoas} isLowSpend={isLowSpend}
               hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} />
           </div>
@@ -271,6 +278,20 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr style={{ background: theme.surfaceAlt, borderTop: `2px solid ${theme.borderStrong}`, fontWeight: 700 }}>
+                  <td style={{ ...td, color: theme.textPrimary }}>
+                    Total · {sales.length} sale{sales.length === 1 ? '' : 's'}
+                  </td>
+                  <td style={{ ...td, color: theme.textSecondary, fontWeight: 400 }}>{fmtDay(firstRun)} – {fmtDay(lastRun)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{fmtSgd(total.spend)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{fmtNum(total.orders)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{fmtRoas(total.roas)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{fmtSgd(total.revenue)}</td>
+                  <td style={{ ...td, textAlign: 'right' }}>{fmtSgd(total.cpa)}</td>
+                  <td colSpan={3} />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>
