@@ -86,6 +86,15 @@ export const CPAS_MARKET = {
 // Brand-account campaigns (any platform) containing "_Sales_" or "_Conversion_"
 // belong under Commerce Lens. Case-insensitive; the underscores are required,
 // so "_Conversions_" (plural) or a name ending in "_Sales" does not match.
+// A row belongs to Commerce Lens if its name matches the rule above, or it is a
+// TikTok GMV Max campaign (has GMV cost / orders / revenue), whatever its name,
+// e.g. SG_PP-All_TikTok_In-Feed_Conversions_Revenue_EN Oct 2026.
+// Works on raw TMR rows (ttads_gmv_cost) and normalised rows (gmv_cost).
+export function isCommerceRow(row) {
+  if (isCommerceCampaign(row?.campaign_name)) return true;
+  return ['gmv_cost', 'gmv_orders', 'gmv_gross_revenue'].some(k => parseFloat(row?.[k] ?? row?.[`ttads_${k}`]) > 0);
+}
+
 export function isCommerceCampaign(name) {
   return /_(sales|conversion)_/i.test(name || '');
 }

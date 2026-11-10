@@ -72,8 +72,8 @@ function nonConversionSplit(ads) {
 
 // rows: [{ date, ad_name, campaign_name, spend, orders, revenue }] already in SGD
 // TikTok has no sale naming, so a sale is a date window around the double day:
-// 9.9 -> 7 Sep to 10 Sep (2 days before, 1 day after). Change here to adjust.
-export const SALE_WINDOW = { before: 2, after: 1 };
+// 9.9 -> 6 Sep to 10 Sep (3 days before, 1 day after). Change here to adjust.
+export const SALE_WINDOW = { before: 3, after: 1 };
 const DAY = 86400000;
 const isoDay = t => new Date(t).toISOString().slice(0, 10);
 

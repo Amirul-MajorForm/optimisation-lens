@@ -7,7 +7,7 @@ import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { normalizeRow } from './tmr.js';
 import { groupSales } from './sales.js';
-import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
+import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -220,8 +220,8 @@ function fetchBrand(dateRangeObj, ttl = CACHE_TTL) {
         for (const platform of ['tiktok', 'meta', 'google']) {
           const rows = split[platform][code];
           const currency = cfg.currency[platform];
-          brand[platform] = { ...parsePlatformResult({ data: rows.filter(r => !isCommerceCampaign(r.campaign_name)) }), currency };
-          commerceCampaigns[platform] = { ...parsePlatformResult({ data: rows.filter(r =>  isCommerceCampaign(r.campaign_name)) }), currency };
+          brand[platform] = { ...parsePlatformResult({ data: rows.filter(r => !isCommerceRow(r)) }), currency };
+          commerceCampaigns[platform] = { ...parsePlatformResult({ data: rows.filter(r =>  isCommerceRow(r)) }), currency };
         }
         return [code, { ...brand, commerceCampaigns, marketName: cfg.name }];
       })
@@ -488,7 +488,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
         catch (err) { errors.push(`${src.key}: ${err.message}`); console.error('[commerce monthly]', src.key, err.message); continue; }
         for (const row of raw?.data || []) {
           const r = normalizeRow(row);
-          if (src.commerceOnly && !isCommerceCampaign(r.campaign_name)) continue;
+          if (src.commerceOnly && !isCommerceRow(r)) continue;
           const month = normalizeMonth(r.year_month);
           const market = detectMarket(r.campaign_name);
           if (!month || !MARKETS[market]) continue;
