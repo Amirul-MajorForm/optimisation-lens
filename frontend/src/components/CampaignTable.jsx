@@ -15,9 +15,11 @@ const COLUMNS = [
   { key: 'cpm',           label: 'CPM',         align: 'right', format: 'currency' },
   { key: 'cpc',           label: 'CPC',         align: 'right', format: 'currency' },
   { key: 'cplv',          label: 'CPLV',        align: 'right', format: 'currency', title: 'Cost per landing page view (traffic campaigns only)' },
+  { key: 'thruplay',      label: 'ThruPlay',    align: 'right', format: 'compact',  title: 'ThruPlays (Meta views campaigns only)' },
+  { key: 'cptp',          label: 'CPTP',        align: 'right', format: 'currency', title: 'Cost per ThruPlay = spend / ThruPlays (Meta views campaigns only)' },
 ];
 const METRIC_COL_WIDTH = 86;
-const CAMPAIGN_COL_MIN = 170;
+const CAMPAIGN_COL_MIN = 160;
 const colWidth = col => col.width ?? METRIC_COL_WIDTH;
 const minWidthOf = cols => CAMPAIGN_COL_MIN + cols.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
 
@@ -51,11 +53,30 @@ const cplvOf = (spend, lpv) => {
   return l > 0 ? s / l : null;
 };
 
+// Views campaigns are named ..._Views_... (e.g. PH_Meta_OATSIDE_Awareness_CPV_Views_2026_Kids-Phase1)
+export const isViewsCampaign = name => /_views(_|$)/i.test(name || '');
+
+// ThruPlay / CPTP: Meta views campaigns only (ThruPlay is a Meta metric)
+const thruplayOf = (row, platform) =>
+  platform === 'meta' && isViewsCampaign(row.campaign_name) ? (parseFloat(row.video_thruplay_watched_actions) || null) : null;
+
 // TikTok reports video views as video_play_actions; CPLV only for traffic campaigns
-function cellValue(row, key) {
+function cellValue(row, key, platform) {
   if (key === 'video_views') return row.video_views ?? row.video_play_actions;
   if (key === 'cplv') return isTrafficCampaign(row.campaign_name) ? cplvOf(row.spend, row.landing_page_views) : null;
+  if (key === 'thruplay') return thruplayOf(row, platform);
+  if (key === 'cptp') { const tp = thruplayOf(row, platform); return tp ? (parseFloat(row.spend) || 0) / tp : null; }
   return row[key];
+}
+
+// Platform-level ThruPlays / CPTP across its views campaigns only
+function viewsThruplay(campaigns, platform) {
+  if (platform !== 'meta') return { thruplay: null, cptp: null };
+  const views = campaigns.filter(c => isViewsCampaign(c.campaign_name));
+  if (!views.length) return { thruplay: null, cptp: null };
+  const tp = views.reduce((a, c) => a + (parseFloat(c.video_thruplay_watched_actions) || 0), 0);
+  const sp = views.reduce((a, c) => a + (parseFloat(c.spend) || 0), 0);
+  return { thruplay: tp || null, cptp: tp > 0 ? sp / tp : null };
 }
 
 // Platform-level CPLV across its traffic campaigns only
@@ -93,6 +114,8 @@ const PLATFORM_CONFIG = {
       { key: 'ctr',         label: 'CTR',         format: 'percent' },
       { key: 'cpm',         label: 'CPM',         format: 'currency' },
       { key: 'cplv',        label: 'CPLV · Traffic', format: 'currency', optional: true },
+      { key: 'thruplay',    label: 'ThruPlay · Views', format: 'compact', optional: true },
+      { key: 'cptp',        label: 'CPTP · Views',  format: 'currency', optional: true },
     ],
   },
   google: {
@@ -160,11 +183,11 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   if (!config) return null;
 
   const { campaigns = [], total = {}, currency = 'SGD' } = data || {};
-  const kpiTotal = { ...total, cplv: trafficCplv(campaigns) };
+  const kpiTotal = { ...total, cplv: trafficCplv(campaigns), ...viewsThruplay(campaigns, platform) };
 
   const sorted = [...campaigns].sort((a, b) => {
-    const av = cellValue(a, sortKey) ?? 0;
-    const bv = cellValue(b, sortKey) ?? 0;
+    const av = cellValue(a, sortKey, platform) ?? 0;
+    const bv = cellValue(b, sortKey, platform) ?? 0;
     const cmp = typeof av === 'string' ? av.localeCompare(bv) : (Number(av) - Number(bv));
     return sortDir === 'asc' ? cmp : -cmp;
   });
@@ -218,7 +241,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
       {expanded && (
         <>
           <KPIRow
-            kpis={variant === 'commerce' ? COMMERCE_KPIS : config.kpis.filter(k => !k.optional || (k.key === 'cplv' && kpiTotal.cplv != null))}
+            kpis={variant === 'commerce' ? COMMERCE_KPIS : config.kpis.filter(k => !k.optional || kpiTotal[k.key] != null)}
             total={kpiTotal}
             theme={theme}
             currency={currency}
@@ -280,7 +303,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                         onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
                       >
                         {columns.map(col => {
-                          const val = cellValue(row, col.key);
+                          const val = cellValue(row, col.key, platform);
                           const display = col.format == null
                             ? (val || '—')
                             : (val == null || val === '' ? '—' : fmt(val, col.format, currency));
