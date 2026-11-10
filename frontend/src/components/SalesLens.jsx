@@ -217,12 +217,12 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                               {s.themes.length > 0 && <span style={{ display: 'block', fontSize: 11.5, color: theme.textSecondary }}>{s.themes.join(' · ')}</span>}
                             </span>
                           </button>
-                          {s.nonConversion && (
+                          {(s.nonConversion || s.exceptions?.length > 0) && (
                             <button
                               onClick={() => toggleNote(s.key)}
                               aria-expanded={notes.has(s.key)}
-                              aria-label={`About ${s.label}: includes non-conversion campaigns`}
-                              title="Includes ads from a non-conversion campaign. Click for details."
+                              aria-label={`About ${s.label}: ${s.exceptions?.length ? 'counted by exception' : 'includes non-conversion campaigns'}`}
+                              title={s.exceptions?.length ? 'Included as a sale by exception. Click for details.' : 'Includes ads from a non-conversion campaign. Click for details.'}
                               style={{ border: 'none', background: 'none', padding: '2px 0 0', marginLeft: 6, cursor: 'pointer', color: notes.has(s.key) ? theme.accent : theme.textMuted, display: 'inline-flex', verticalAlign: 'top' }}>
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                                 <circle cx="12" cy="12" r="9" /><path d="M12 11v5" /><circle cx="12" cy="7.8" r="0.6" fill="currentColor" />
@@ -247,16 +247,22 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                         <td style={{ ...td, textAlign: 'right' }}><Delta pct={s.vsPrevious?.orders} theme={theme} darkMode={darkMode} /></td>
                         <td style={{ ...td, textAlign: 'right' }}><Delta pct={s.vsPrevious?.roas} theme={theme} darkMode={darkMode} /></td>
                       </tr>
-                      {s.nonConversion && notes.has(s.key) && (
+                      {(s.nonConversion || s.exceptions?.length > 0) && notes.has(s.key) && (
                         <tr style={{ background: theme.surfaceAlt }}>
                           <td colSpan={10} style={{ padding: '8px 12px 10px 32px', fontSize: 12, color: theme.textSecondary, lineHeight: 1.5, whiteSpace: 'normal' }}>
                             <span style={{ fontWeight: 600, color: theme.textPrimary }}>Note on {s.label}:</span>{' '}
-                            the totals include {s.nonConversion.campaigns.map((c, j) => (
+                            {s.exceptions?.length > 0 && (
+                              <span>
+                                {s.exceptions.map(e => `"${e.theme}" ads (${fmtSgd(e.spend)}, ${fmtNum(e.orders)} orders)`).join(' and ')}
+                                {' '}are counted as {s.label} by exception: their ad names don't carry the {s.label} date.{s.nonConversion ? ' ' : ''}
+                              </span>
+                            )}
+                            {s.nonConversion && <>the totals include {s.nonConversion.campaigns.map((c, j) => (
                               <span key={c.campaign}>
                                 {j > 0 && (j === s.nonConversion.campaigns.length - 1 ? ' and ' : ', ')}
                                 {fmtSgd(c.spend)} from a {c.objective} campaign (<BreakableName name={c.campaign} />, {fmtNum(c.orders)} orders, {fmtRoas(c.roas)} ROAS)
                               </span>
-                            ))}. Conversion campaigns only: {fmtSgd(s.nonConversion.conversionOnly.spend)} · {fmtNum(s.nonConversion.conversionOnly.orders)} orders · {fmtRoas(s.nonConversion.conversionOnly.roas)} ROAS.
+                            ))}. Conversion campaigns only: {fmtSgd(s.nonConversion.conversionOnly.spend)} · {fmtNum(s.nonConversion.conversionOnly.orders)} orders · {fmtRoas(s.nonConversion.conversionOnly.roas)} ROAS.</>}
                           </td>
                         </tr>
                       )}

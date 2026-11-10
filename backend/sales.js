@@ -11,10 +11,18 @@ const SALE_RE = /(?<![\d.])(1[0-2]|[1-9])\.(1[0-2]|[1-9])(?![\d.])/g;
 // "BAU" as a whole word, with spaces or underscores around it
 const BAU_RE = /(?:^|[^a-z])bau(?:[^a-z]|$)/i;
 
-// Returns { label: '9.9', month: 9, theme: 'Lantern Sale' } or null
+// Exceptions: ads without a double date that should still count as a mega
+// sale. Temporary, agreed case by case; remove an entry to undo it.
+export const SALE_EXCEPTIONS = [
+  { match: /october icd/i, label: '10.10', theme: 'October ICD' },
+];
+
+// Returns { label: '9.9', month: 9, theme: 'Lantern Sale', exception? } or null
 export function detectSale(adName) {
   const name = adName || '';
   if (BAU_RE.test(name)) return null;
+  const ex = SALE_EXCEPTIONS.find(e => e.match.test(name));
+  if (ex) return { label: ex.label, month: Number(ex.label.split('.')[0]), theme: ex.theme, exception: true };
   for (const m of name.matchAll(SALE_RE)) {
     if (m[1] !== m[2]) continue; // 9.9 yes, 9.10 no
     const label = `${m[1]}.${m[2]}`;
@@ -80,7 +88,7 @@ export function groupSales(rows) {
     const key = `${year}-${String(sale.month).padStart(2, '0')}`;
     const s = sales.get(key) || {
       key, label: sale.label, year, month: sale.month,
-      ...blank(), firstDate: null, lastDate: null, activeDays: new Set(), themes: new Set(), ads: new Map(),
+      ...blank(), firstDate: null, lastDate: null, activeDays: new Set(), themes: new Set(), exceptions: new Map(), ads: new Map(),
     };
     add(s, r);
     if (r.date) {
@@ -89,6 +97,11 @@ export function groupSales(rows) {
       if (!s.lastDate || r.date > s.lastDate) s.lastDate = r.date;
     }
     if (sale.theme) s.themes.add(sale.theme);
+    if (sale.exception) {
+      const e = s.exceptions.get(sale.theme) || { theme: sale.theme, ...blank() };
+      add(e, r);
+      s.exceptions.set(sale.theme, e);
+    }
     const adKey = `${r.campaign_name}|${r.ad_name}`;
     const ad = s.ads.get(adKey) || { ad: r.ad_name, campaign: r.campaign_name, ...blank() };
     add(ad, r);
@@ -105,6 +118,7 @@ export function groupSales(rows) {
       ...rates({ spend: s.spend, orders: s.orders, revenue: s.revenue }),
       ads: [...s.ads.values()].map(rates).sort((a, b) => b.spend - a.spend),
       ...nonConversionSplit([...s.ads.values()]),
+      exceptions: [...s.exceptions.values()].map(rates),
     }));
 
   // Token-spend sales (under 20% of the average sale's spend, e.g. SGD 4 at
