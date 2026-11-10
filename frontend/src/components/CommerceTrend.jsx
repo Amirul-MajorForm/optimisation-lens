@@ -105,7 +105,28 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
   const [hover, setHover] = useState(null);
   const [expanded, setExpanded] = useState(true);
   const months = data?.months || [];
-  const series = data?.series || [];
+  const fullSeries = data?.series || [];
+  // Platform filter: empty set = all platforms. Recomputed from each month's
+  // byPlatform split, so filtering is instant and needs no new request.
+  const [picked, setPicked] = useState(() => new Set());
+  const available = PLATFORM_ORDER.filter(k => fullSeries.some(m => m.byPlatform?.[k]));
+  const active = picked.size ? available.filter(k => picked.has(k)) : available;
+  const series = picked.size ? fullSeries.map(m => {
+    const t = { spend: 0, orders: 0, revenue: 0 };
+    const byPlatform = {};
+    for (const k of active) {
+      const p = m.byPlatform?.[k];
+      if (!p) continue;
+      t.spend += p.spend; t.orders += p.orders; t.revenue += p.revenue;
+      byPlatform[k] = p;
+    }
+    return { ...m, ...t, byPlatform, roas: t.spend > 0 && t.revenue > 0 ? t.revenue / t.spend : null };
+  }) : fullSeries;
+  const toggle = k => setPicked(prev => {
+    const next = new Set(prev);
+    next.has(k) ? next.delete(k) : next.add(k);
+    return next.size === available.length ? new Set() : next; // all picked = All
+  });
   const currentMonth = months[months.length - 1];
 
   const sum = k => series.reduce((a, m) => a + (m[k] || 0), 0);
@@ -119,7 +140,7 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
           {marketName ? `${marketName} · ` : ''}Commerce by month
         </span>
         <span style={{ fontSize: 13, color: theme.textMuted }}>
-          {months.length ? `${monthLabel(months[0], false)} – today · all platforms · SGD · not affected by the date filter` : 'All platforms · SGD · not affected by the date filter'}
+          {`${months.length ? `${monthLabel(months[0], false)} – today · ` : ''}${picked.size ? active.map(k => PLATFORM_LABEL[k]).join(' + ') : 'all platforms'} · SGD · not affected by the date filter`}
         </span>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
           style={{ marginLeft: 'auto', transition: 'transform 0.2s', transform: expanded ? 'none' : 'rotate(-90deg)' }}>
@@ -137,6 +158,28 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
           )}
           {!error && series.length > 0 && (
             <>
+              {available.length > 1 && (
+                <div role="group" aria-label="Filter platforms" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {[{ key: 'all', label: 'All platforms' }, ...available.map(k => ({ key: k, label: PLATFORM_LABEL[k] }))].map(({ key, label }) => {
+                    const on = key === 'all' ? picked.size === 0 : picked.has(key);
+                    return (
+                      <button
+                        key={key}
+                        aria-pressed={on}
+                        onClick={() => (key === 'all' ? setPicked(new Set()) : toggle(key))}
+                        style={{
+                          padding: '5px 12px', borderRadius: 999, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                          fontFamily: "'DM Sans', sans-serif",
+                          border: `1px solid ${on ? theme.accent : theme.border}`,
+                          background: on ? theme.accentLight : theme.surface,
+                          color: on ? theme.accent : theme.textSecondary,
+                        }}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
                 <MiniChart title="Spend" total={fmtSgd(totSpend)} months={months} values={series.map(m => m.spend)} kind="bar"
                   format={fmtSgd} axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : Math.round(v))}
