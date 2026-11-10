@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { BreakableName } from '../campaignName.jsx';
 
 // Sales Lens: mega-sale periods (2.2, 9.9, 11.11 ...) side by side, Meta CPAS,
@@ -8,6 +8,13 @@ const fmtSgd = v => (v == null ? '—' : `SGD ${v.toLocaleString('en-US', { mini
 const fmtSgdShort = v => (v >= 10000 ? `SGD ${(v / 1000).toFixed(1)}K` : `SGD ${Math.round(v).toLocaleString('en-US')}`);
 const fmtNum = v => (v == null ? '—' : Math.round(v).toLocaleString('en-US'));
 const fmtRoas = v => (v == null ? '—' : `${v.toFixed(2)}x`);
+const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+// '2026-09-07','2026-09-10' -> '7–10 Sep'; across months -> '31 Jan – 3 Feb'
+const fmtRange = (a, b) => {
+  const [, ma, da] = a.split('-').map(Number), [, mb, db] = b.split('-').map(Number);
+  if (a === b) return `${da} ${MON[ma - 1]}`;
+  return ma === mb ? `${da}–${db} ${MON[ma - 1]}` : `${da} ${MON[ma - 1]} – ${db} ${MON[mb - 1]}`;
+};
 const fmtDay = iso => (iso ? new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }) : '?');
 
 function niceMax(max) {
@@ -107,6 +114,8 @@ function Delta({ pct, goodWhenUp = true, theme, darkMode }) {
   return <span style={{ color, fontWeight: 600 }}>{pct >= 0 ? '▲' : '▼'} {a < 10 ? a.toFixed(1) : Math.round(a)}%</span>;
 }
 
+const PLATFORM_LABEL = { cpas: 'Meta CPAS', tiktok: 'TikTok' };
+
 export default function SalesLens({ state, theme, darkMode, marketName }) {
   const [hover, setHover] = useState(null);
   const [open, setOpen] = useState(() => new Set());
@@ -114,7 +123,55 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
   const [notes, setNotes] = useState(() => new Set());
   const toggleNote = key => setNotes(n => { const x = new Set(n); x.has(key) ? x.delete(key) : x.add(key); return x; });
   const data = state?.data;
-  const sales = data?.sales || [];
+  const [picked, setPicked] = useState(() => new Set());
+  const available = data?.platforms?.length ? data.platforms : ['cpas'];
+  const active = picked.size ? available.filter(k => picked.has(k)) : available;
+  const togglePlatform = k => setPicked(prev => {
+    const next = new Set(prev);
+    next.has(k) ? next.delete(k) : next.add(k);
+    return next.size === available.length ? new Set() : next;
+  });
+
+  // Each sale recomputed from the selected platforms' figures; best ROAS,
+  // LOW SPEND and "vs previous" follow the filter too.
+  const sales = useMemo(() => {
+    const list = (data?.sales || []).map(s => {
+      const bp = s.byPlatform || { cpas: s };
+      const t = { spend: 0, orders: 0, revenue: 0 };
+      const dates = new Set();
+      let first = null, last = null;
+      for (const k of active) {
+        const p = bp[k];
+        if (!p) continue;
+        t.spend += p.spend; t.orders += p.orders; t.revenue += p.revenue;
+        (p.activeDates || []).forEach(d => dates.add(d));
+        if (p.firstDate && (!first || p.firstDate < first)) first = p.firstDate;
+        if (p.lastDate && (!last || p.lastDate > last)) last = p.lastDate;
+      }
+      if (!t.spend && !t.orders && !t.revenue) return null;
+      const cpasOn = active.includes('cpas');
+      return {
+        ...s, ...t,
+        roas: t.spend > 0 && t.revenue > 0 ? t.revenue / t.spend : null,
+        cpa: t.spend > 0 && t.orders > 0 ? t.spend / t.orders : null,
+        firstDate: first, lastDate: last, activeDays: dates.size,
+        ads: (s.ads || []).filter(a => active.includes(a.platform || 'cpas')),
+        themes: cpasOn ? s.themes : [],
+        nonConversion: cpasOn ? s.nonConversion : null,
+        exceptions: cpasOn ? s.exceptions : [],
+        tiktokWindow: active.includes('tiktok') ? bp.tiktok?.window || null : null,
+        lowSpend: undefined, vsPrevious: null,
+      };
+    }).filter(Boolean);
+    const avg = list.length ? list.reduce((a, x) => a + x.spend, 0) / list.length : 0;
+    list.forEach(x => { x.lowSpend = x.spend < avg * 0.2; });
+    const pct = (a, b) => (a != null && b > 0 ? ((a - b) / b) * 100 : null);
+    list.forEach((x, i) => {
+      const prev = list.slice(0, i).reverse().find(y => !y.lowSpend);
+      x.vsPrevious = prev ? { label: prev.label, spend: pct(x.spend, prev.spend), orders: pct(x.orders, prev.orders), roas: pct(x.roas, prev.roas) } : null;
+    });
+    return list;
+  }, [data, active.join(',')]);
 
   // Highest value; for ROAS ignore sales with a token spend (e.g. SGD 4 for 87x)
   // so "best" means a sale that actually ran: at least 20% of the average spend
@@ -148,9 +205,33 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
             {marketName ? `${marketName} · ` : ''}Mega sales compared
           </span>
           <span style={{ fontSize: 13, color: theme.textMuted }}>
-            Meta CPAS · SGD · since {data?.dateRange ? fmtDay(data.dateRange.startDate) + ' ' + data.dateRange.startDate.slice(0, 4) : '1 Jan'} · sales found from the date in each ad name (e.g. 9.9, 11.11) · not affected by the date filter
+            {active.map(k => PLATFORM_LABEL[k]).join(' + ')} · SGD · since {data?.dateRange ? fmtDay(data.dateRange.startDate) + ' ' + data.dateRange.startDate.slice(0, 4) : '1 Jan'}
+            {active.includes('cpas') && ' · Meta CPAS sales from the date in each ad name (e.g. 9.9)'}
+            {active.includes('tiktok') && ` · TikTok sales by date window (${data?.saleWindow?.before ?? 2} days before to ${data?.saleWindow?.after ?? 1} day after, e.g. 9.9 = 7–10 Sep)`}
+            {' · not affected by the date filter'}
           </span>
         </div>
+        {available.length > 1 && (
+          <div role="group" aria-label="Filter platforms" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+            {[{ key: 'all', label: 'All platforms' }, ...available.map(k => ({ key: k, label: PLATFORM_LABEL[k] }))].map(({ key, label }) => {
+              const on = key === 'all' ? picked.size === 0 : picked.has(key);
+              return (
+                <button key={key} aria-pressed={on}
+                  onClick={() => (key === 'all' ? setPicked(new Set()) : togglePlatform(key))}
+                  style={{
+                    padding: '5px 12px', borderRadius: 999, cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                    fontFamily: "'DM Sans', sans-serif",
+                    border: `1px solid ${on ? theme.accent : theme.border}`,
+                    background: on ? theme.accentLight : theme.surface,
+                    color: on ? theme.accent : theme.textSecondary,
+                  }}>{label}</button>
+              );
+            })}
+          </div>
+        )}
+        {data?.notes?.length > 0 && (
+          <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>{data.notes.join(' · ')}</div>
+        )}
 
         {state?.loading && !sales.length && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 12 }}>
@@ -189,7 +270,7 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                   <th style={{ ...th, textAlign: 'right' }}>ROAS</th>
                   <th style={{ ...th, textAlign: 'right' }}>Revenue</th>
                   <th style={{ ...th, textAlign: 'right' }}>CPA</th>
-                  <th style={{ ...th, textAlign: 'right' }} title="Change vs the previous mega sale that wasn't LOW SPEND">vs prev · Spend</th>
+                  <th style={{ ...th, textAlign: 'right', whiteSpace: 'normal', width: 70 }} title="Change vs the previous mega sale that wasn't LOW SPEND">vs prev · Spend</th>
                   <th style={{ ...th, textAlign: 'right' }}>Orders</th>
                   <th style={{ ...th, textAlign: 'right' }}>ROAS</th>
                 </tr>
@@ -202,7 +283,7 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                       <tr
                         onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}
                         style={{ borderTop: `1px solid ${theme.border}`, background: hover === i ? theme.surfaceHover : 'transparent' }}>
-                        <td style={{ ...td, whiteSpace: 'normal', minWidth: 230 }}>
+                        <td style={{ ...td, whiteSpace: 'normal', minWidth: 210 }}>
                           <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4 }}>
                           <button
                             onClick={() => setOpen(o => { const n = new Set(o); n.has(s.key) ? n.delete(s.key) : n.add(s.key); return n; })}
@@ -232,8 +313,9 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                           </div>
                         </td>
                         <td style={{ ...td, color: theme.textSecondary }}>
-                          {fmtDay(s.firstDate)} – {fmtDay(s.lastDate)}
+                          {s.firstDate && s.lastDate ? fmtRange(s.firstDate, s.lastDate) : '—'}
                           <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }}>{s.activeDays} day{s.activeDays === 1 ? '' : 's'} with spend</span>
+                          {s.tiktokWindow && <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }} title="TikTok sale window: 2 days before to 1 day after the sale date">TikTok {fmtRange(s.tiktokWindow.start, s.tiktokWindow.end)}</span>}
                         </td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtSgd(s.spend)}</td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtNum(s.orders)}</td>
@@ -269,8 +351,11 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                       {isOpen && s.ads.map(a => (
                         <tr key={`${s.key}-${a.campaign}-${a.ad}`} style={{ background: theme.surfaceAlt, fontSize: 12 }}>
                           <td colSpan={2} style={{ ...td, paddingLeft: 32, whiteSpace: 'normal', color: theme.textSecondary }}>
+                            <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: theme.textMuted, background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 4, padding: '0 5px', marginRight: 6 }}>{PLATFORM_LABEL[a.platform || 'cpas']}</span>
                             <span style={{ color: theme.textPrimary }}><BreakableName name={a.ad} /></span>
-                            <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }}><BreakableName name={a.campaign} /></span>
+                            {a.platform === 'tiktok'
+                              ? <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }}>GMV campaign · days inside the sale window</span>
+                              : <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }}><BreakableName name={a.campaign} /></span>}
                           </td>
                           <td style={{ ...td, textAlign: 'right' }}>{fmtSgd(a.spend)}</td>
                           <td style={{ ...td, textAlign: 'right' }}>{fmtNum(a.orders)}</td>
@@ -303,7 +388,7 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
         </div>
       )}
 
-      {data?.notSale?.length > 0 && (
+      {active.includes('cpas') && data?.notSale?.length > 0 && (
         <div style={{ fontSize: 12, color: theme.textMuted }}>
           <button onClick={() => setShowOther(v => !v)} style={{ border: 'none', background: 'none', padding: 0, cursor: 'pointer', color: theme.textSecondary, fontSize: 12 }}>
             {showOther ? '▾' : '▸'} {data.notSale.length} ad{data.notSale.length === 1 ? '' : 's'} without a mega-sale date not counted ({fmtSgdShort(data.notSale.reduce((a, x) => a + x.spend, 0))} spend)

@@ -71,11 +71,69 @@ function nonConversionSplit(ads) {
 }
 
 // rows: [{ date, ad_name, campaign_name, spend, orders, revenue }] already in SGD
-export function groupSales(rows) {
+// TikTok has no sale naming, so a sale is a date window around the double day:
+// 9.9 -> 7 Sep to 10 Sep (2 days before, 1 day after). Change here to adjust.
+export const SALE_WINDOW = { before: 2, after: 1 };
+const DAY = 86400000;
+const isoDay = t => new Date(t).toISOString().slice(0, 10);
+
+// 'YYYY-MM-DD' -> { label: '9.9', month: 9, year, start, end } or null
+export function saleWindowFor(date) {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  if (!isFinite(t)) return null;
+  const y = Number(date.slice(0, 4)), m = Number(date.slice(5, 7));
+  // This month's sale day, or next month's (2.2's window starts 31 Jan)
+  for (const [yy, mm] of [[y, m], m === 12 ? [y + 1, 1] : [y, m + 1]]) {
+    const saleT = Date.UTC(yy, mm - 1, mm);
+    const start = saleT - SALE_WINDOW.before * DAY, end = saleT + SALE_WINDOW.after * DAY;
+    if (t >= start && t <= end) return { label: `${mm}.${mm}`, month: mm, year: yy, start: isoDay(start), end: isoDay(end) };
+  }
+  return null;
+}
+
+function newSale(key, info) {
+  return {
+    key, label: info.label, year: info.year, month: info.month,
+    ...blank(), firstDate: null, lastDate: null, activeDays: new Set(),
+    themes: new Set(), exceptions: new Map(), ads: new Map(), byPlatform: {},
+  };
+}
+
+function accumulate(sales, info, r, platform) {
+  const key = `${info.year}-${String(info.month).padStart(2, '0')}`;
+  const s = sales.get(key) || newSale(key, info);
+  add(s, r);
+  const p = (s.byPlatform[platform] ||= { ...blank(), dates: new Set(), firstDate: null, lastDate: null });
+  add(p, r);
+  if (info.start) p.window = { start: info.start, end: info.end };
+  if (r.date) {
+    if (r.spend > 0) { s.activeDays.add(r.date); p.dates.add(r.date); }
+    for (const x of [s, p]) {
+      if (!x.firstDate || r.date < x.firstDate) x.firstDate = r.date;
+      if (!x.lastDate || r.date > x.lastDate) x.lastDate = r.date;
+    }
+  }
+  if (info.theme) s.themes.add(info.theme);
+  if (info.exception) {
+    const e = s.exceptions.get(info.theme) || { theme: info.theme, ...blank() };
+    add(e, r);
+    s.exceptions.set(info.theme, e);
+  }
+  const ad = r.ad_name ?? r.campaign_name;
+  const adKey = `${platform}|${r.campaign_name}|${ad}`;
+  const entry = s.ads.get(adKey) || { platform, ad, campaign: r.campaign_name, ...blank() };
+  add(entry, r);
+  s.ads.set(adKey, entry);
+  sales.set(key, s);
+}
+
+// cpasRows:   [{ date, ad_name, campaign_name, spend, orders, revenue }]  (SGD)
+// tiktokRows: [{ date, campaign_name, spend, orders, revenue }]           (SGD, GMV campaigns)
+export function groupSales(cpasRows, tiktokRows = []) {
   const sales = new Map();
   const notSale = new Map();
 
-  for (const r of rows) {
+  for (const r of cpasRows) {
     if (!r.spend && !r.orders && !r.revenue) continue;
     const sale = detectSale(r.ad_name);
     if (!sale) {
@@ -84,29 +142,13 @@ export function groupSales(rows) {
       notSale.set(r.ad_name, o);
       continue;
     }
-    const year = Number((r.date || '').slice(0, 4));
-    const key = `${year}-${String(sale.month).padStart(2, '0')}`;
-    const s = sales.get(key) || {
-      key, label: sale.label, year, month: sale.month,
-      ...blank(), firstDate: null, lastDate: null, activeDays: new Set(), themes: new Set(), exceptions: new Map(), ads: new Map(),
-    };
-    add(s, r);
-    if (r.date) {
-      if (r.spend > 0) s.activeDays.add(r.date);
-      if (!s.firstDate || r.date < s.firstDate) s.firstDate = r.date;
-      if (!s.lastDate || r.date > s.lastDate) s.lastDate = r.date;
-    }
-    if (sale.theme) s.themes.add(sale.theme);
-    if (sale.exception) {
-      const e = s.exceptions.get(sale.theme) || { theme: sale.theme, ...blank() };
-      add(e, r);
-      s.exceptions.set(sale.theme, e);
-    }
-    const adKey = `${r.campaign_name}|${r.ad_name}`;
-    const ad = s.ads.get(adKey) || { ad: r.ad_name, campaign: r.campaign_name, ...blank() };
-    add(ad, r);
-    s.ads.set(adKey, ad);
-    sales.set(key, s);
+    accumulate(sales, { ...sale, year: Number((r.date || '').slice(0, 4)) }, r, 'cpas');
+  }
+
+  for (const r of tiktokRows) {
+    if (!r.spend && !r.orders && !r.revenue) continue;
+    const w = saleWindowFor(r.date);
+    if (w) accumulate(sales, w, r, 'tiktok');
   }
 
   const list = [...sales.values()]
@@ -116,8 +158,12 @@ export function groupSales(rows) {
       themes: [...s.themes],
       firstDate: s.firstDate, lastDate: s.lastDate, activeDays: s.activeDays.size,
       ...rates({ spend: s.spend, orders: s.orders, revenue: s.revenue }),
+      byPlatform: Object.fromEntries(Object.entries(s.byPlatform).map(([k, p]) => [k, {
+        ...rates({ spend: p.spend, orders: p.orders, revenue: p.revenue }),
+        firstDate: p.firstDate, lastDate: p.lastDate, activeDates: [...p.dates].sort(), window: p.window || null,
+      }])),
       ads: [...s.ads.values()].map(rates).sort((a, b) => b.spend - a.spend),
-      ...nonConversionSplit([...s.ads.values()]),
+      ...nonConversionSplit([...s.ads.values()].filter(a => a.platform === 'cpas')),
       exceptions: [...s.exceptions.values()].map(rates),
     }));
 
@@ -133,8 +179,11 @@ export function groupSales(rows) {
     s.vsPrevious = p ? { label: p.label, spend: pct(s.spend, p.spend), orders: pct(s.orders, p.orders), roas: pct(s.roas, p.roas) } : null;
   });
 
+  const platforms = ['cpas', 'tiktok'].filter(k => list.some(s => s.byPlatform[k]));
   return {
     sales: list,
+    platforms,
+    saleWindow: SALE_WINDOW,
     notSale: [...notSale.values()].map(rates).sort((a, b) => b.spend - a.spend),
   };
 }

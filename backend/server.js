@@ -408,31 +408,50 @@ app.get('/api/sales', async (req, res) => {
     const range = { startDate: COMMERCE_TREND_START, endDate: getDateRange(1).endDate };
     const accounts = [...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD].filter(a => CPAS_MARKET[a] === market);
 
+    const tiktokAccount = ACCOUNTS.tiktok[market];
+
     const result = await cached(`sales_${market}_${range.startDate}_${range.endDate}`, async () => {
-      if (!accounts.length) return { market, currency: 'SGD', dateRange: range, sales: [], notSale: [] };
       const { fx } = await cached('goal_sheet', loadGoalSheet);
-      const raw = await makeQuery(accounts,
-        ['amount_spent', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'], range,
-        { dimensions: ['date', 'campaign_name', 'ad_name'], chunk: false, priority: PRIORITY.normal });
+      const notes = [];
+      let cpasRows = [], tiktokRows = [];
 
-      // Without account ids per row, take the currency from the account group:
-      // if all of the market's CPAS accounts bill the same way, use that.
-      const localCur = MARKETS[market].currency.meta;
-      const curOf = new Set(accounts.map(a => (CPAS_ACCOUNTS.SGD.includes(a) ? 'SGD' : localCur)));
-      const currency = curOf.size === 1 ? [...curOf][0] : null;
-      const rate = currency ? fx[currency] : null;
-      if (!rate) throw new Error(currency
-        ? `No FOREX rate for ${currency}`
-        : `${MARKETS[market].name} CPAS accounts bill in more than one currency; Sales Lens supports one currency per market for now`);
+      // Meta CPAS: sales from the double date in each ad name
+      if (accounts.length) {
+        try {
+          const localCur = MARKETS[market].currency.meta;
+          const curOf = new Set(accounts.map(a => (CPAS_ACCOUNTS.SGD.includes(a) ? 'SGD' : localCur)));
+          const currency = curOf.size === 1 ? [...curOf][0] : null;
+          const rate = currency ? fx[currency] : null;
+          if (!rate) throw new Error(currency
+            ? `No FOREX rate for ${currency}`
+            : `${MARKETS[market].name} CPAS accounts bill in more than one currency, so Meta CPAS is left out here for now`);
+          const raw = await makeQuery(accounts,
+            ['amount_spent', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'], range,
+            { dimensions: ['date', 'campaign_name', 'ad_name'], chunk: false, priority: PRIORITY.normal });
+          cpasRows = (raw?.data || []).map(row => {
+            const r = normalizeRow(row);
+            return { date: normalizeDate(r.date), ad_name: r.ad_name, campaign_name: r.campaign_name,
+              spend: (parseFloat(r.spend) || 0) * rate, orders: r.orders || 0, revenue: (r.revenue || 0) * rate };
+          });
+        } catch (err) { notes.push(`Meta CPAS: ${err.message}`); console.error('[sales cpas]', err.message); }
+      }
 
-      const rows = (raw?.data || []).map(row => {
-        const r = normalizeRow(row);
-        return {
-          date: normalizeDate(r.date), ad_name: r.ad_name, campaign_name: r.campaign_name,
-          spend: (parseFloat(r.spend) || 0) * rate, orders: r.orders || 0, revenue: (r.revenue || 0) * rate,
-        };
-      });
-      return { market, currency: 'SGD', sourceCurrency: currency, dateRange: range, ...groupSales(rows) };
+      // TikTok: every GMV Max campaign (any name) on days inside a sale window
+      if (tiktokAccount) {
+        try {
+          const rate = fx[MARKETS[market].currency.tiktok] || 1;
+          const raw = await makeQuery([tiktokAccount],
+            ['amount_spent', 'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'], range,
+            { dimensions: ['date', 'campaign_name'], chunk: false, priority: PRIORITY.normal });
+          tiktokRows = (raw?.data || []).map(row => normalizeRow(row))
+            .filter(r => parseFloat(r.gmv_cost) > 0 || parseFloat(r.gmv_orders) > 0 || parseFloat(r.gmv_gross_revenue) > 0)
+            .map(r => ({ date: normalizeDate(r.date), campaign_name: r.campaign_name,
+              spend: (parseFloat(r.spend) || 0) * rate, orders: r.orders || 0, revenue: (r.revenue || 0) * rate }));
+        } catch (err) { notes.push(`TikTok: ${err.message}`); console.error('[sales tiktok]', err.message); }
+      }
+
+      if (!cpasRows.length && !tiktokRows.length && notes.length) throw new Error(notes.join(' · '));
+      return { market, currency: 'SGD', dateRange: range, notes, ...groupSales(cpasRows, tiktokRows) };
     }, MONTHLY_TTL);
 
     res.json(result);
