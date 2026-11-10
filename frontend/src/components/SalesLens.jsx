@@ -207,7 +207,7 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
           <span style={{ fontSize: 13, color: theme.textMuted }}>
             {active.map(k => PLATFORM_LABEL[k]).join(' + ')} · SGD · since {data?.dateRange ? fmtDay(data.dateRange.startDate) + ' ' + data.dateRange.startDate.slice(0, 4) : '1 Jan'}
             {active.includes('cpas') && ' · Meta CPAS sales from the date in each ad name (e.g. 9.9)'}
-            {active.includes('tiktok') && ` · TikTok sales by date window (${data?.saleWindow?.before ?? 3} days before to ${data?.saleWindow?.after ?? 1} day after, e.g. 9.9 = 6–10 Sep)`}
+            {active.includes('tiktok') && ` · TikTok sales by date window (${data?.saleWindow?.before ?? 3} days before to ${data?.saleWindow?.after ?? 1} day after, never before the 1st of the month, e.g. 9.9 = 6–10 Sep, 2.2 = 1–3 Feb)`}
             {' · not affected by the date filter'}
           </span>
         </div>
@@ -315,7 +315,7 @@ export default function SalesLens({ state, theme, darkMode, marketName }) {
                         <td style={{ ...td, color: theme.textSecondary }}>
                           {s.firstDate && s.lastDate ? fmtRange(s.firstDate, s.lastDate) : '—'}
                           <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }}>{s.activeDays} day{s.activeDays === 1 ? '' : 's'} with spend</span>
-                          {s.tiktokWindow && <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }} title="TikTok sale window: 3 days before to 1 day after the sale date">TikTok {fmtRange(s.tiktokWindow.start, s.tiktokWindow.end)}</span>}
+                          {s.tiktokWindow && <span style={{ display: 'block', fontSize: 11, color: theme.textMuted }} title="TikTok sale window: 3 days before to 1 day after the sale date, never before the 1st of the month">TikTok {fmtRange(s.tiktokWindow.start, s.tiktokWindow.end)}</span>}
                         </td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtSgd(s.spend)}</td>
                         <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{fmtNum(s.orders)}</td>

@@ -72,7 +72,8 @@ function nonConversionSplit(ads) {
 
 // rows: [{ date, ad_name, campaign_name, spend, orders, revenue }] already in SGD
 // TikTok has no sale naming, so a sale is a date window around the double day:
-// 9.9 -> 6 Sep to 10 Sep (3 days before, 1 day after). Change here to adjust.
+// 9.9 -> 6 Sep to 10 Sep (3 days before, 1 day after), never starting before the
+// 1st of the sale's month (2.2 -> 1 Feb to 3 Feb). Change here to adjust.
 export const SALE_WINDOW = { before: 3, after: 1 };
 const DAY = 86400000;
 const isoDay = t => new Date(t).toISOString().slice(0, 10);
@@ -82,13 +83,14 @@ export function saleWindowFor(date) {
   const t = Date.parse(`${date}T00:00:00Z`);
   if (!isFinite(t)) return null;
   const y = Number(date.slice(0, 4)), m = Number(date.slice(5, 7));
-  // This month's sale day, or next month's (2.2's window starts 31 Jan)
-  for (const [yy, mm] of [[y, m], m === 12 ? [y + 1, 1] : [y, m + 1]]) {
-    const saleT = Date.UTC(yy, mm - 1, mm);
-    const start = saleT - SALE_WINDOW.before * DAY, end = saleT + SALE_WINDOW.after * DAY;
-    if (t >= start && t <= end) return { label: `${mm}.${mm}`, month: mm, year: yy, start: isoDay(start), end: isoDay(end) };
-  }
-  return null;
+  // The window never reaches back into the previous month: 2.2 starts on
+  // 1 Feb, not 30/31 Jan. So only this month's sale day can contain the date.
+  const saleT = Date.UTC(y, m - 1, m);
+  const monthStart = Date.UTC(y, m - 1, 1);
+  const start = Math.max(monthStart, saleT - SALE_WINDOW.before * DAY);
+  const end = saleT + SALE_WINDOW.after * DAY;
+  if (t < start || t > end) return null;
+  return { label: `${m}.${m}`, month: m, year: y, start: isoDay(start), end: isoDay(end) };
 }
 
 function newSale(key, info) {
