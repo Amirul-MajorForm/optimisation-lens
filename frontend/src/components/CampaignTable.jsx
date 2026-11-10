@@ -331,6 +331,23 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                     ))
                 }
               </tbody>
+              {variant === 'commerce' && !loading && sorted.length > 0 && (
+                <tfoot>
+                  <tr style={{ background: theme.surfaceAlt, borderTop: `2px solid ${theme.borderStrong}` }}>
+                    {columns.map(col => {
+                      const v = col.grow ? null : kpiTotal[col.key];
+                      return (
+                        <td key={col.key} style={{
+                          padding: '10px 10px', textAlign: col.align, fontWeight: 700,
+                          color: theme.textPrimary, whiteSpace: 'nowrap',
+                        }}>
+                          {col.grow ? `Total · ${sorted.length} campaigns` : (v == null || v === '' ? '—' : fmt(v, col.format, currency))}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         </>

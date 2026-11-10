@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
+import { normalizeRow } from './tmr.js';
 import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -67,11 +68,11 @@ const isoDay = t => new Date(t).toISOString().slice(0, 10);
 // Sum rows that share the same dimension values (results of split queries). All
 // metrics we request are additive except reach, which is slightly overstated
 // when a single campaign's date range had to be split.
-const DIMENSION_KEYS = ['campaign_name', 'date'];
+const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month'];
 function mergeRows(...results) {
   const byName = new Map();
   for (const r of results.flatMap(x => x?.data || [])) {
-    const key = `${r.campaign_name ?? ''}|${r.date ?? ''}`;
+    const key = `${r.campaign_name ?? ''}|${r.date ?? ''}|${r.year_month ?? ''}`;
     const prev = byName.get(key);
     if (!prev) { byName.set(key, { ...r }); continue; }
     for (const [k, v] of Object.entries(r)) {
@@ -105,8 +106,8 @@ function chunkRange({ startDate, endDate }) {
   return chunks;
 }
 
-async function makeQuery(accounts, metrics, dateRange, opts) {
-  const chunks = chunkRange(dateRange);
+async function makeQuery(accounts, metrics, dateRange, opts = {}) {
+  const chunks = opts.chunk === false ? [dateRange] : chunkRange(dateRange);
   if (chunks.length === 1) return makeQuerySplit(accounts, metrics, dateRange, opts);
   const parts = [];
   for (const chunk of chunks) parts.push(await makeQuerySplit(accounts, metrics, chunk, opts));
@@ -121,6 +122,13 @@ async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
     const dropped = metrics.filter(m => NON_ADDITIVE.includes(m));
     const unknown = [...String(err.message).matchAll(/Unknown field "([^"]+)"/gi)].map(m => m[1])
       .filter(f => metrics.includes(f) && !CORE_FIELDS.includes(f));
+    const suggestion = String(err.message).match(/Unknown field "([^"]+)"[^"]*Did you mean "([^"]+)"/i);
+    if (err.status === 400 && suggestion && !opts.suggested) {
+      const [, bad, good] = suggestion;
+      console.warn(`[TMR] field ${bad} -> ${good} (TMR suggestion), retrying`);
+      const swap = list => list?.map(f => (f === bad ? good : f));
+      return makeQuerySplit(accounts, swap(metrics), dateRange, { ...opts, dimensions: swap(opts.dimensions), suggested: true });
+    }
     if (err.status === 400 && unknown.length) {
       console.warn(`[TMR] dropping unknown field(s) ${unknown.join(', ')} and retrying`);
       return makeQuerySplit(accounts, metrics.filter(m => !unknown.includes(m)), dateRange, opts);
@@ -371,6 +379,92 @@ app.get('/api/trend', async (req, res) => {
 // Commerce Lens: Meta CPAS accounts, fetched only when the tab is opened.
 // 2 requests: accounts billed in local currency, then accounts billed in SGD.
 // Each market gets one CPAS block per currency so currencies are never summed.
+// Commerce monthly trend (Commerce Lens header chart): spend, orders, revenue
+// per country per month since COMMERCE_TREND_START, across every commerce
+// source, converted to SGD with the FOREX tab so platforms can be added up.
+// Ignores the dashboard's date filter. 5 month-level queries (one per source),
+// cached for 3 hours.
+const COMMERCE_TREND_START = process.env.COMMERCE_TREND_START || '2026-01-01';
+const MONTHLY_TTL = 3 * 60 * 60 * 1000;
+const MONTH_NUM = { jan: '01', feb: '02', mar: '03', apr: '04', may: '05', jun: '06', jul: '07', aug: '08', sep: '09', oct: '10', nov: '11', dec: '12' };
+
+function normalizeMonth(v) {
+  const s = String(v ?? '').trim();
+  let m = s.match(/^(\d{4})-([A-Za-z]{3})/);
+  if (m) return `${m[1]}-${MONTH_NUM[m[2].toLowerCase()] || '00'}`;
+  m = s.match(/^(\d{4})-?(\d{2})/);
+  return m ? `${m[1]}-${m[2]}` : null;
+}
+
+app.get('/api/commerce/monthly', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const range = { startDate: COMMERCE_TREND_START, endDate: getDateRange(1).endDate };
+
+    const result = await cached(`commerce_monthly_${range.startDate}_${range.endDate}`, async () => {
+      const { fx } = await cached('goal_sheet', loadGoalSheet);
+      // Normal priority: queued after the Commerce tables (requested first), but not
+      // behind the background goal trend, so the chart appears promptly
+      const opts = { dimensions: ['year_month', 'campaign_name'], chunk: false, priority: PRIORITY.normal };
+      const sources = [
+        { key: 'cpas',   accounts: CPAS_ACCOUNTS.local, metrics: ['amount_spent', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'], currency: m => MARKETS[m]?.currency.meta },
+        { key: 'cpas',   accounts: CPAS_ACCOUNTS.SGD,   metrics: ['amount_spent', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'], currency: () => 'SGD' },
+        { key: 'tiktok', accounts: ALL_ACCOUNTS.tiktok, metrics: ['amount_spent', 'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'], currency: () => 'SGD', commerceOnly: true },
+        { key: 'meta',   accounts: ALL_ACCOUNTS.meta,   metrics: ['amount_spent', 'fads_all_purchases', 'fads_purchase_conversions_all'], currency: m => MARKETS[m]?.currency.meta, commerceOnly: true },
+        { key: 'google', accounts: ALL_ACCOUNTS.google, metrics: ['amount_spent', 'conversions', 'gadw_metrics_conversions_value'], currency: () => 'SGD', commerceOnly: true },
+      ];
+
+      const markets = {};
+      const missingFx = new Set();
+      const errors = [];
+      for (const src of sources) {
+        let raw;
+        try { raw = await makeQuery(src.accounts, src.metrics, range, opts); }
+        catch (err) { errors.push(`${src.key}: ${err.message}`); console.error('[commerce monthly]', src.key, err.message); continue; }
+        for (const row of raw?.data || []) {
+          const r = normalizeRow(row);
+          if (src.commerceOnly && !isCommerceCampaign(r.campaign_name)) continue;
+          const month = normalizeMonth(r.year_month);
+          const market = detectMarket(r.campaign_name);
+          if (!month || !MARKETS[market]) continue;
+          const cur = src.currency(market) || 'SGD';
+          const rate = fx[cur];
+          if (!rate) { missingFx.add(cur); continue; }
+          const spend = (parseFloat(r.spend) || 0) * rate;
+          const revenue = (r.revenue || 0) * rate;
+          const orders = r.orders || 0;
+          if (!spend && !orders && !revenue) continue;
+          const mk = (markets[market] ||= {});
+          const bucket = (mk[month] ||= { month, spend: 0, orders: 0, revenue: 0, byPlatform: {} });
+          const plat = (bucket.byPlatform[src.key] ||= { spend: 0, orders: 0, revenue: 0 });
+          bucket.spend += spend; bucket.orders += orders; bucket.revenue += revenue;
+          plat.spend += spend; plat.orders += orders; plat.revenue += revenue;
+        }
+      }
+
+      // Every month from the start to now, so gaps show as empty months
+      const months = [];
+      for (let d = new Date(`${range.startDate.slice(0, 7)}-01T00:00:00Z`); d <= new Date(`${range.endDate}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1)) {
+        months.push(d.toISOString().slice(0, 7));
+      }
+      const out = {};
+      for (const code of Object.keys(MARKETS)) {
+        out[code] = months.map(month => {
+          const b = markets[code]?.[month] || { month, spend: 0, orders: 0, revenue: 0, byPlatform: {} };
+          return { ...b, roas: b.spend > 0 && b.revenue > 0 ? b.revenue / b.spend : null };
+        });
+      }
+      if (errors.length === sources.length) throw new Error(errors[0]);
+      return { currency: 'SGD', months, dateRange: range, markets: out, missingFx: [...missingFx], partialErrors: errors };
+    }, MONTHLY_TTL);
+
+    res.json(result);
+  } catch (err) {
+    console.error('[commerce monthly error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/commerce', async (req, res) => {
   try {
     if (!requireKey(res)) return;

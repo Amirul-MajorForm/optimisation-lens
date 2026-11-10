@@ -222,37 +222,43 @@ export function splitByMarket(tmrResponse) {
   return buckets;
 }
 
+// Normalise one TMR row: strip connector prefixes, unify spend / orders /
+// revenue across sources, and derive rate metrics.
+export function normalizeRow(row) {
+  // Strip connector prefixes from prefixed field ids (ttads_reach -> reach)
+  const out = Object.fromEntries(
+    Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v])
+  );
+  if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
+  // TikTok GMV Max campaigns report spend only as gmv_cost
+  if (!(parseFloat(out.spend) > 0) && parseFloat(out.gmv_cost) > 0) out.spend = out.gmv_cost;
+  // One orders / revenue field across sources (first one with data wins)
+  const firstNum = keys => { for (const k of keys) { const n = parseFloat(out[k]); if (n > 0) return n; } return 0; };
+  out.orders  = firstNum(['gmv_orders', 'collab_action_omni_purchase', 'all_purchases', 'conversions', 'metrics_conversions']);
+  out.revenue = firstNum(['gmv_gross_revenue', 'collab_ads_value_omni_purchase', 'purchase_conversions_all', 'metrics_conversions_value']);
+  // One landing-page-view field across platforms (TikTok / Meta name it differently)
+  if (out.landing_page_views == null) out.landing_page_views = out.total_landing_page_view ?? out.website_fb_landing_page_views;
+  // Derive rate metrics per row (TMR doesn't return these at row level)
+  const sp  = parseFloat(out.spend) || 0;
+  const imp = parseFloat(out.impressions) || 0;
+  const cl  = parseFloat(out.clicks) || 0;
+  // null (shown as "—") when there is nothing to divide by, e.g. GMV Max
+  // campaigns that report no impressions
+  if (!out.ctr || out.ctr === 0) out.ctr = imp > 0 ? (cl / imp) * 100        : null;
+  if (!out.cpm || out.cpm === 0) out.cpm = imp > 0 ? (sp / imp) * 1000       : null;
+  if (!out.cpc || out.cpc === 0) out.cpc = cl  > 0 ?  sp / cl                : null;
+  out.roas = sp > 0 && out.revenue > 0 ? out.revenue / sp : null;
+  out.cpa  = out.orders > 0 && sp > 0 ? sp / out.orders : null;
+  return out;
+}
+
 export function parsePlatformResult(tmrResponse) {
-  const rows = (tmrResponse?.data || []).map(row => {
-    // Strip connector prefixes from prefixed field ids (ttads_reach -> reach)
-    const out = Object.fromEntries(
-      Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v])
-    );
-    if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
-    // TikTok GMV Max campaigns report spend only as gmv_cost
-    if (!(parseFloat(out.spend) > 0) && parseFloat(out.gmv_cost) > 0) out.spend = out.gmv_cost;
-    // One orders / revenue field across sources (first one with data wins)
-    const firstNum = keys => { for (const k of keys) { const n = parseFloat(out[k]); if (n > 0) return n; } return 0; };
-    out.orders  = firstNum(['gmv_orders', 'collab_action_omni_purchase', 'all_purchases', 'conversions', 'metrics_conversions']);
-    out.revenue = firstNum(['gmv_gross_revenue', 'collab_ads_value_omni_purchase', 'purchase_conversions_all', 'metrics_conversions_value']);
-    // One landing-page-view field across platforms (TikTok / Meta name it differently)
-    if (out.landing_page_views == null) out.landing_page_views = out.total_landing_page_view ?? out.website_fb_landing_page_views;
-    // Derive rate metrics per row (TMR doesn't return these at row level)
-    const sp  = parseFloat(out.spend) || 0;
-    const imp = parseFloat(out.impressions) || 0;
-    const cl  = parseFloat(out.clicks) || 0;
-    // null (shown as "—") when there is nothing to divide by, e.g. GMV Max
-    // campaigns that report no impressions
-    if (!out.ctr || out.ctr === 0) out.ctr = imp > 0 ? (cl / imp) * 100        : null;
-    if (!out.cpm || out.cpm === 0) out.cpm = imp > 0 ? (sp / imp) * 1000       : null;
-    if (!out.cpc || out.cpc === 0) out.cpc = cl  > 0 ?  sp / cl                : null;
-    out.roas = sp > 0 && out.revenue > 0 ? out.revenue / sp : null;
-    out.cpa  = out.orders > 0 ? sp / out.orders : null;
-    return out;
-  });
+  const rows = (tmrResponse?.data || []).map(normalizeRow);
 
   const campaigns = rows
-    .filter(r => r.campaign_name && parseFloat(r.spend || 0) > 0)
+    // Also keep campaigns with no spend this period but attributed revenue (late
+    // conversions), so platform totals always equal the sum of the rows shown
+    .filter(r => r.campaign_name && (parseFloat(r.spend || 0) > 0 || r.revenue > 0))
     .sort((a, b) => (parseFloat(b.spend) || 0) - (parseFloat(a.spend) || 0));
 
   // Compute totals from rows (additive metrics summed; rates derived)

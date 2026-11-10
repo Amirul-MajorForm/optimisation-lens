@@ -1,4 +1,5 @@
 import { PlatformSection } from './CampaignTable.jsx';
+import CommerceTrend from './CommerceTrend.jsx';
 
 const CAMPAIGN_PLATFORMS = [
   { key: 'tiktok', label: 'TikTok · Sales & Conversion' },
@@ -10,7 +11,23 @@ const CAMPAIGN_PLATFORMS = [
 // platform whose name contains "_Sales_" or "_Conversion_".
 // CPAS comes as one block per billing currency, so mixed-currency markets
 // (e.g. ID: IDR and SGD) get separate sections instead of a summed total.
-export default function CommerceLens({ theme, commerce, campaigns, loading, onTrend }) {
+export default function CommerceLens({ theme, darkMode, commerce, campaigns, loading, onTrend, monthly, marketName }) {
+  return (
+    <div>
+      <CommerceTrend
+        data={monthly?.data}
+        loading={monthly?.loading}
+        error={monthly?.error}
+        theme={theme}
+        darkMode={darkMode}
+        marketName={marketName}
+      />
+      <CommerceTables theme={theme} commerce={commerce} campaigns={campaigns} loading={loading} onTrend={onTrend} />
+    </div>
+  );
+}
+
+function CommerceTables({ theme, commerce, campaigns, loading, onTrend }) {
   const cpas = commerce?.cpas ?? [];
   const multiCurrency = cpas.length > 1;
   const campaignSections = CAMPAIGN_PLATFORMS.filter(p => campaigns?.[p.key]?.campaigns?.length > 0);

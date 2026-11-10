@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
@@ -29,6 +29,8 @@ export default function App() {
   const [commerce, setCommerce] = useState(null); // { params, data }
   const [commerceLoading, setCommerceLoading] = useState(false);
   const [commerceError, setCommerceError] = useState(null);
+  // Commerce monthly chart: since the start of the year, not tied to the date filter
+  const [commerceMonthly, setCommerceMonthly] = useState({ data: null, loading: false, error: null, requested: false });
   // Goal tracking (Brand Lens) — loaded per date range, after/alongside brand data
   const [goals, setGoals] = useState(null); // { params, data }
   const [goalsLoading, setGoalsLoading] = useState(false);
@@ -158,6 +160,20 @@ export default function App() {
     if (activeTab === 'brand' && goals?.params !== fetchParams) loadGoals();
   }, [activeTab, fetchParams, goals, loadGoals]);
 
+  const loadCommerceMonthly = useCallback(async () => {
+    setCommerceMonthly(m => ({ ...m, loading: true, error: null, requested: true }));
+    try {
+      const data = await fetchCommerceMonthly();
+      setCommerceMonthly({ data, loading: false, error: null, requested: true });
+    } catch (e) {
+      setCommerceMonthly(m => ({ ...m, loading: false, error: e.message }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'commerce' && !commerceMonthly.requested) loadCommerceMonthly();
+  }, [activeTab, commerceMonthly.requested, loadCommerceMonthly]);
+
   const handleRefresh = () => {
     load();
     if (activeTab === 'brand') loadGoals();
@@ -263,6 +279,15 @@ export default function App() {
                   campaigns={marketData?.commerceCampaigns}
                   loading={commerceLoading || loading}
                   onTrend={setTrendTarget}
+                  darkMode={darkMode}
+                  marketName={marketName}
+                  monthly={{
+                    ...commerceMonthly,
+                    data: commerceMonthly.data && {
+                      ...commerceMonthly.data,
+                      series: commerceMonthly.data.markets?.[market] || [],
+                    },
+                  }}
                 />
               )}
 

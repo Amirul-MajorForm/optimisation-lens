@@ -23,5 +23,16 @@ export const fetchGoals = (params, signal, { trend = false } = {}) =>
 export const fetchTrend = (params, { campaign, platform, lens, lpv = false }, signal) =>
   getJSON('/api/trend', params, signal, { campaign, platform, lens, ...(lpv ? { lpv: '1' } : {}) });
 
+// Commerce Lens header chart: monthly totals since the start of the year,
+// independent of the date filter
+export async function fetchCommerceMonthly(signal) {
+  const res = await fetch('/api/commerce/monthly', { signal });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 // Commerce Lens: Meta CPAS accounts, only requested when the tab is opened
 export const fetchCommerce = (params, signal) => getJSON('/api/commerce', params, signal);
