@@ -49,9 +49,18 @@ const ICON_SUN = (
   </svg>
 );
 
+// Sales Lens: price tag (mega-sale comparison)
+const ICON_SALES = (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/>
+    <circle cx="7.5" cy="7.5" r="1.5"/>
+  </svg>
+);
+
 const TABS = [
   { id: 'brand',    label: 'Brand Lens',    icon: ICON_BRAND },
   { id: 'commerce', label: 'Commerce Lens', icon: ICON_COMMERCE },
+  { id: 'sales',    label: 'Sales Lens',    icon: ICON_SALES },
 ];
 
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark }) {

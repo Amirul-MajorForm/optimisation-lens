@@ -6,6 +6,7 @@ import { dirname, join } from 'path';
 import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { normalizeRow } from './tmr.js';
+import { groupSales } from './sales.js';
 import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -68,11 +69,11 @@ const isoDay = t => new Date(t).toISOString().slice(0, 10);
 // Sum rows that share the same dimension values (results of split queries). All
 // metrics we request are additive except reach, which is slightly overstated
 // when a single campaign's date range had to be split.
-const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month'];
+const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name'];
 function mergeRows(...results) {
   const byName = new Map();
   for (const r of results.flatMap(x => x?.data || [])) {
-    const key = `${r.campaign_name ?? ''}|${r.date ?? ''}|${r.year_month ?? ''}`;
+    const key = `${r.campaign_name ?? ''}|${r.date ?? ''}|${r.year_month ?? ''}|${r.ad_name ?? ''}`;
     const prev = byName.get(key);
     if (!prev) { byName.set(key, { ...r }); continue; }
     for (const [k, v] of Object.entries(r)) {
@@ -395,6 +396,51 @@ function normalizeMonth(v) {
   m = s.match(/^(\d{4})-?(\d{2})/);
   return m ? `${m[1]}-${m[2]}` : null;
 }
+
+// Sales Lens: mega-sale periods (9.9, 10.10, 11.11 ...) from Meta CPAS ad names
+// for one market since COMMERCE_TREND_START. One daily-by-ad query over that
+// market's CPAS accounts, loaded when the tab opens, cached 3 hours, in SGD.
+app.get('/api/sales', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const market = String(req.query.market || 'sg').toLowerCase();
+    if (!MARKETS[market]) return res.status(400).json({ error: `Unknown market ${market}` });
+    const range = { startDate: COMMERCE_TREND_START, endDate: getDateRange(1).endDate };
+    const accounts = [...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD].filter(a => CPAS_MARKET[a] === market);
+
+    const result = await cached(`sales_${market}_${range.startDate}_${range.endDate}`, async () => {
+      if (!accounts.length) return { market, currency: 'SGD', dateRange: range, sales: [], notSale: [] };
+      const { fx } = await cached('goal_sheet', loadGoalSheet);
+      const raw = await makeQuery(accounts,
+        ['amount_spent', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'], range,
+        { dimensions: ['date', 'campaign_name', 'ad_name'], chunk: false, priority: PRIORITY.normal });
+
+      // Without account ids per row, take the currency from the account group:
+      // if all of the market's CPAS accounts bill the same way, use that.
+      const localCur = MARKETS[market].currency.meta;
+      const curOf = new Set(accounts.map(a => (CPAS_ACCOUNTS.SGD.includes(a) ? 'SGD' : localCur)));
+      const currency = curOf.size === 1 ? [...curOf][0] : null;
+      const rate = currency ? fx[currency] : null;
+      if (!rate) throw new Error(currency
+        ? `No FOREX rate for ${currency}`
+        : `${MARKETS[market].name} CPAS accounts bill in more than one currency; Sales Lens supports one currency per market for now`);
+
+      const rows = (raw?.data || []).map(row => {
+        const r = normalizeRow(row);
+        return {
+          date: normalizeDate(r.date), ad_name: r.ad_name, campaign_name: r.campaign_name,
+          spend: (parseFloat(r.spend) || 0) * rate, orders: r.orders || 0, revenue: (r.revenue || 0) * rate,
+        };
+      });
+      return { market, currency: 'SGD', sourceCurrency: currency, dateRange: range, ...groupSales(rows) };
+    }, MONTHLY_TTL);
+
+    res.json(result);
+  } catch (err) {
+    console.error('[sales error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/commerce/monthly', async (req, res) => {
   try {

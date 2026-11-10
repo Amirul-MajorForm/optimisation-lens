@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
 import CommerceLens from './components/CommerceLens.jsx';
 import GoalTracker from './components/GoalTracker.jsx';
 import TrendPanel from './components/TrendPanel.jsx';
+import SalesLens from './components/SalesLens.jsx';
 import Sidebar from './components/Sidebar.jsx';
 
 const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.markets || {}));
@@ -30,6 +31,8 @@ export default function App() {
   const [commerceLoading, setCommerceLoading] = useState(false);
   const [commerceError, setCommerceError] = useState(null);
   // Commerce monthly chart: since the start of the year, not tied to the date filter
+  // Sales Lens: per market, loaded when the tab is opened for that market
+  const [salesByMarket, setSalesByMarket] = useState({});
   const [commerceMonthly, setCommerceMonthly] = useState({ data: null, loading: false, error: null, requested: false });
   // Goal tracking (Brand Lens) — loaded per date range, after/alongside brand data
   const [goals, setGoals] = useState(null); // { params, data }
@@ -174,6 +177,20 @@ export default function App() {
     if (activeTab === 'commerce' && !commerceMonthly.requested) loadCommerceMonthly();
   }, [activeTab, commerceMonthly.requested, loadCommerceMonthly]);
 
+  const loadSales = useCallback(async (mkt) => {
+    setSalesByMarket(s => ({ ...s, [mkt]: { ...(s[mkt] || {}), loading: true, error: null } }));
+    try {
+      const data = await fetchSales(mkt);
+      setSalesByMarket(s => ({ ...s, [mkt]: { data, loading: false, error: null } }));
+    } catch (e) {
+      setSalesByMarket(s => ({ ...s, [mkt]: { ...(s[mkt] || {}), loading: false, error: e.message } }));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'sales' && !salesByMarket[market]) loadSales(market);
+  }, [activeTab, market, salesByMarket, loadSales]);
+
   const handleRefresh = () => {
     load();
     if (activeTab === 'brand') loadGoals();
@@ -270,6 +287,10 @@ export default function App() {
                   />
                   <CampaignTable theme={theme} data={marketData} loading={loading} onTrend={setTrendTarget} />
                 </>
+              )}
+
+              {activeTab === 'sales' && (
+                <SalesLens state={salesByMarket[market]} theme={theme} darkMode={darkMode} marketName={marketName} />
               )}
 
               {isCommerce && (

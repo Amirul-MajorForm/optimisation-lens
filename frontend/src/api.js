@@ -34,5 +34,15 @@ export async function fetchCommerceMonthly(signal) {
   return res.json();
 }
 
+// Sales Lens: mega-sale periods for one market (Meta CPAS), since start of year
+export async function fetchSales(market, signal) {
+  const res = await fetch(`/api/sales?market=${encodeURIComponent(market)}`, { signal });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 // Commerce Lens: Meta CPAS accounts, only requested when the tab is opened
 export const fetchCommerce = (params, signal) => getJSON('/api/commerce', params, signal);
