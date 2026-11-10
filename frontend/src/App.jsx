@@ -41,6 +41,15 @@ export default function App() {
 
   const theme = darkMode ? DARK : LIGHT;
 
+  // First day of the selected range (YYYY-MM-DD), for "vs previous month" labels
+  function computeRangeStart(params) {
+    if (params.startDate) return params.startDate;
+    const days = parseInt(params.dateRange);
+    if (!days) return null;
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)).toISOString().slice(0, 10);
+  }
+
   function computeDateLabel(params) {
     if (params.startDate && params.endDate) {
       return `${fmtDateStr(params.startDate)} – ${fmtDateStr(params.endDate)}`;
@@ -304,6 +313,8 @@ export default function App() {
                   onTrend={setTrendTarget}
                   darkMode={darkMode}
                   marketName={marketName}
+                  market={market}
+                  rangeStart={computeRangeStart(fetchParams)}
                   monthly={{
                     ...commerceMonthly,
                     data: commerceMonthly.data && {

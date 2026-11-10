@@ -20,8 +20,8 @@ export const fetchGoals = (params, signal, { trend = false } = {}) =>
   getJSON('/api/goals', params, signal, trend ? { trend: '1' } : {});
 
 // Campaign trend chart: daily data for one campaign, requested only when opened
-export const fetchTrend = (params, { campaign, platform, lens, lpv = false }, signal) =>
-  getJSON('/api/trend', params, signal, { campaign, platform, lens, ...(lpv ? { lpv: '1' } : {}) });
+export const fetchTrend = (params, { campaign, platform, lens, lpv = false, rev = false }, signal) =>
+  getJSON('/api/trend', params, signal, { campaign, platform, lens, ...(lpv ? { lpv: '1' } : {}), ...(rev ? { rev: '1' } : {}) });
 
 // Commerce Lens header chart: monthly totals since the start of the year,
 // independent of the date filter

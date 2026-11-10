@@ -28,7 +28,7 @@ const COMMERCE_COLUMNS = [
   { key: 'campaign_name', label: 'Campaign', align: 'left',  grow: true, format: null },
   { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 126 },
   { key: 'revenue',       label: 'Revenue',  align: 'right', format: 'currency', width: 126 },
-  { key: 'roas',          label: 'ROAS',     align: 'right', format: 'roas',     title: 'Return on ad spend = revenue / spend' },
+  { key: 'roas',          label: 'ROAS',     align: 'right', format: 'roas',     width: 98, title: 'Return on ad spend = revenue / spend. Small label: change vs the previous month' },
   { key: 'orders',        label: 'Orders',   align: 'right', format: 'number' },
   { key: 'cpa',           label: 'CPA',      align: 'right', format: 'currency', title: 'Cost per acquisition = spend / orders' },
   { key: 'impressions',   label: 'Impr.',    align: 'right', format: 'compact' },
@@ -145,7 +145,21 @@ function SkeletonRow({ cols }) {
   );
 }
 
-function KPIRow({ kpis, total, theme, currency }) {
+// "▲ 12% vs Oct" under a ROAS value: change vs the previous calendar month
+export function RoasVsPrevious({ current, previous, label, theme }) {
+  if (current == null || !(previous > 0)) return null;
+  const pct = ((current - previous) / previous) * 100;
+  const dark = theme.bg === '#080d1a';
+  const color = pct >= 0 ? (dark ? '#34d399' : '#047857') : (dark ? '#f87171' : '#b91c1c');
+  const a = Math.abs(pct);
+  return (
+    <span title={`${label} ROAS: ${previous.toFixed(2)}x`} style={{ display: 'block', fontSize: 10.5, fontWeight: 600, color, lineHeight: 1.3, cursor: 'help' }}>
+      {pct >= 0 ? '▲' : '▼'} {a < 10 ? a.toFixed(1) : Math.round(a)}% vs {label}
+    </span>
+  );
+}
+
+function KPIRow({ kpis, total, theme, currency, notes }) {
   return (
     <div style={{
       display: 'flex',
@@ -166,6 +180,7 @@ function KPIRow({ kpis, total, theme, currency }) {
             <div style={{ fontSize: 18, fontWeight: 700, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif", letterSpacing: '-0.01em' }}>
               {hasVal ? fmt(val, format, currency) : '—'}
             </div>
+            {notes?.[key]}
           </div>
         );
       })}
@@ -173,7 +188,7 @@ function KPIRow({ kpis, total, theme, currency }) {
   );
 }
 
-export function PlatformSection({ platform, label, data, theme, loading, lens = 'brand', onTrend, variant = 'brand' }) {
+export function PlatformSection({ platform, label, data, theme, loading, lens = 'brand', onTrend, variant = 'brand', roasPrev }) {
   const [sortKey, setSortKey] = useState('spend');
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
@@ -245,6 +260,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
             total={kpiTotal}
             theme={theme}
             currency={currency}
+            notes={roasPrev ? { roas: <RoasVsPrevious current={kpiTotal.roas} previous={roasPrev.total} label={roasPrev.label} theme={theme} /> } : null}
           />
 
           <div style={{ overflowX: 'auto' }}>
@@ -328,7 +344,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                 <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                                   {onTrend && (
                                     <button
-                                      onClick={() => onTrend({ campaign: val, platform, lens, currency })}
+                                      onClick={() => onTrend({ campaign: val, platform, lens, currency, variant })}
                                       title="View daily trend (CPM / CTR / CPLV)"
                                       aria-label={`View daily trend for ${val}`}
                                       style={{
@@ -346,6 +362,11 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                   )}
                                   <span style={{ minWidth: 0 }}><BreakableName name={val} /></span>
                                 </div>
+                              ) : col.key === 'roas' && roasPrev ? (
+                                <>
+                                  {display}
+                                  <RoasVsPrevious current={val} previous={roasPrev.campaign(row.campaign_name)} label={roasPrev.label} theme={theme} />
+                                </>
                               ) : display}
                             </td>
                           );
@@ -365,6 +386,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                           color: theme.textPrimary, whiteSpace: 'nowrap',
                         }}>
                           {col.grow ? `Total · ${sorted.length} campaigns` : (v == null || v === '' ? '—' : fmt(v, col.format, currency))}
+                          {col.key === 'roas' && roasPrev && <RoasVsPrevious current={v} previous={roasPrev.total} label={roasPrev.label} theme={theme} />}
                         </td>
                       );
                     })}

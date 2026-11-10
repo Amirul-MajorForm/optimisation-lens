@@ -313,6 +313,13 @@ const TREND_BASE = ['amount_spent', 'impressions', 'clicks'];
 const TREND_EXTRA = { tiktok: ['ttads_gmv_cost'] }; // GMV Max spend
 const TREND_LPV = { tiktok: 'ttads_total_landing_page_view', meta: 'fads_website_fb_landing_page_views' };
 const TREND_METRICS = { tiktok: true, meta: true, google: true };
+// Orders / revenue for the ROAS tab, per source (CPAS = Meta in Commerce Lens' CPAS sections)
+const TREND_REVENUE = {
+  cpas:   ['fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'],
+  tiktok: ['ttads_gmv_orders', 'ttads_gmv_gross_revenue'],
+  meta:   ['fads_all_purchases', 'fads_purchase_conversions_all'],
+  google: ['conversions', 'gadw_metrics_conversions_value'],
+};
 
 // TMR may return dates as 2026-10-01, 20261001 or a full timestamp
 function normalizeDate(v) {
@@ -328,7 +335,10 @@ app.get('/api/trend', async (req, res) => {
     if (!TREND_METRICS[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
     const range = resolveDateRange(req.query);
     const withLpv = req.query.lpv === '1' && TREND_LPV[platform];
-    const metrics = [...TREND_BASE, ...(TREND_EXTRA[platform] || []), ...(withLpv ? [TREND_LPV[platform]] : [])];
+    const revKey = lens === 'commerce' && platform === 'meta' ? 'cpas' : platform;
+    const withRev = req.query.rev === '1';
+    const metrics = [...TREND_BASE, ...(TREND_EXTRA[platform] || []),
+      ...(withLpv ? [TREND_LPV[platform]] : []), ...(withRev ? TREND_REVENUE[revKey] : [])];
 
     const market = detectMarket(campaign);
     const all = lens === 'commerce' && platform === 'meta'
@@ -339,7 +349,7 @@ app.get('/api/trend', async (req, res) => {
       : [ACCOUNTS[platform]?.[market]].filter(Boolean);
     const others = all.filter(a => !own.includes(a));
 
-    const result = await cached(`trend_${lens}_${platform}_${withLpv ? 'lpv' : 'base'}_${campaign}_${range.startDate}_${range.endDate}`, async () => {
+    const result = await cached(`trend_${lens}_${platform}_${withLpv ? 'lpv' : 'base'}${withRev ? '_rev' : ''}_${campaign}_${range.startDate}_${range.endDate}`, async () => {
       const opts = {
         dimensions: ['date'],
         filters: [{ fieldId: 'campaign_name', operator: 'equals', value: campaign }],
@@ -360,15 +370,16 @@ app.get('/api/trend', async (req, res) => {
           impressions: parseFloat(r.impressions) || 0,
           clicks: parseFloat(r.clicks) || 0,
           landing_page_views: parseFloat(r.total_landing_page_view ?? r.website_fb_landing_page_views) || 0,
+          ...(withRev ? (({ orders, revenue }) => ({ orders, revenue }))(normalizeRow(row)) : {}),
         });
       }
       // Every day in the range, so days without delivery show as gaps
       const days = [];
       for (let t = Date.parse(range.startDate); t <= Date.parse(range.endDate); t += DAY) {
         const date = isoDay(t);
-        days.push({ date, ...(byDate.get(date) || { spend: 0, impressions: 0, clicks: 0, landing_page_views: 0 }) });
+        days.push({ date, ...(byDate.get(date) || { spend: 0, impressions: 0, clicks: 0, landing_page_views: 0, ...(withRev ? { orders: 0, revenue: 0 } : {}) }) });
       }
-      return { campaign, platform, lens, dateRange: range, days, hasLpv: !!withLpv };
+      return { campaign, platform, lens, dateRange: range, days, hasLpv: !!withLpv, hasRevenue: withRev };
     });
 
     res.json(result);
@@ -481,6 +492,9 @@ app.get('/api/commerce/monthly', async (req, res) => {
       ];
 
       const markets = {};
+      // Per campaign per month (SGD), for "ROAS vs previous month" labels:
+      // campaignMonths[market][source][campaign][YYYY-MM] = { spend, orders, revenue }
+      const campaignMonths = {};
       const missingFx = new Set();
       const errors = [];
       for (const src of sources) {
@@ -505,6 +519,8 @@ app.get('/api/commerce/monthly', async (req, res) => {
           const plat = (bucket.byPlatform[src.key] ||= { spend: 0, orders: 0, revenue: 0 });
           bucket.spend += spend; bucket.orders += orders; bucket.revenue += revenue;
           plat.spend += spend; plat.orders += orders; plat.revenue += revenue;
+          const cm = ((((campaignMonths[market] ||= {})[src.key] ||= {})[r.campaign_name] ||= {})[month] ||= { spend: 0, orders: 0, revenue: 0 });
+          cm.spend += spend; cm.orders += orders; cm.revenue += revenue;
         }
       }
 
@@ -521,7 +537,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
         });
       }
       if (errors.length === sources.length) throw new Error(errors[0]);
-      return { currency: 'SGD', months, dateRange: range, markets: out, missingFx: [...missingFx], partialErrors: errors };
+      return { currency: 'SGD', months, dateRange: range, markets: out, campaignMonths, missingFx: [...missingFx], partialErrors: errors };
     }, MONTHLY_TTL);
 
     res.json(result);

@@ -12,12 +12,15 @@ const METRICS = {
           calc: d => d.impressions > 0 ? (d.clicks / d.impressions) * 100 : null },
   CPLV: { label: 'CPLV', hint: 'Cost per landing page view', money: true,
           calc: d => d.landing_page_views > 0 ? d.spend / d.landing_page_views : null },
+  ROAS: { label: 'ROAS', hint: 'Return on ad spend = revenue / spend', money: false, roas: true, higherIsBetter: true,
+          calc: d => d.spend > 0 && d.revenue > 0 ? d.revenue / d.spend : null },
 };
 
 const isTraffic = name => /_traffic(_|$)/i.test(name || '');
 
 function fmtValue(v, metric, currency) {
   if (v == null || !isFinite(v)) return '—';
+  if (METRICS[metric].roas) return `${v.toFixed(2)}x`;
   if (!METRICS[metric].money) return `${v.toFixed(2)}%`;
   const a = Math.abs(v);
   const dp = a >= 1000 ? 0 : a >= 1 || a === 0 ? 2 : a >= 0.1 ? 3 : 4;
@@ -25,6 +28,7 @@ function fmtValue(v, metric, currency) {
 }
 
 const fmtAxis = (v, metric) => {
+  if (METRICS[metric].roas) return `${+v.toFixed(1)}x`;
   if (!METRICS[metric].money) return `${+v.toFixed(2)}%`;
   if (v >= 10000) return `${Math.round(v / 1000)}K`;
   if (v >= 100) return Math.round(v).toLocaleString('en-US');
@@ -163,6 +167,8 @@ function LineChart({ points, metric, currency, goal, theme, darkMode }) {
           <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Impressions</span><span>{hp.impressions.toLocaleString('en-US')}</span></div>
           {metric === 'CTR' && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Clicks</span><span>{hp.clicks.toLocaleString('en-US')}</span></div>}
           {metric === 'CPLV' && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Landing page views</span><span>{hp.landing_page_views.toLocaleString('en-US')}</span></div>}
+          {metric === 'ROAS' && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Revenue</span><span>{fmtValue(hp.revenue, 'CPM', currency)}</span></div>}
+          {metric === 'ROAS' && <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Orders</span><span>{Math.round(hp.orders || 0).toLocaleString('en-US')}</span></div>}
         </div>
       )}
     </div>
@@ -172,22 +178,26 @@ function LineChart({ points, metric, currency, goal, theme, darkMode }) {
 export default function TrendPanel({ target, params, goals, theme, darkMode, onClose }) {
   const { campaign, platform, lens, currency: accountCurrency } = target;
   const cplvAvailable = platform !== 'google' && isTraffic(campaign);
+  // ROAS for campaigns opened from Commerce Lens (they have orders / revenue)
+  const roasAvailable = target.variant === 'commerce';
   const goalFor = m => (goals || []).find(g => g.platform === platform && g.campaign === campaign && g.model === m);
-  const initial = ['CPM', 'CTR', 'CPLV'].find(m => goalFor(m) && (m !== 'CPLV' || cplvAvailable)) || (cplvAvailable ? 'CPLV' : 'CPM');
+  const initial = roasAvailable ? 'ROAS'
+    : ['CPM', 'CTR', 'CPLV'].find(m => goalFor(m) && (m !== 'CPLV' || cplvAvailable)) || (cplvAvailable ? 'CPLV' : 'CPM');
 
   const [metric, setMetric] = useState(initial);
   const [view, setView] = useState('chart');
   // Two datasets, fetched only when a tab needs them:
   //   base: spend / impressions / clicks   -> CPM, CTR
   //   lpv:  base + landing page views      -> CPLV (also serves CPM / CTR)
-  const [sets, setSets] = useState({ base: null, lpv: null });
-  const [errors, setErrors] = useState({ base: null, lpv: null });
-  const need = metric === 'CPLV' ? 'lpv' : (sets.lpv ? 'lpv' : 'base');
+  const [sets, setSets] = useState({ base: null, lpv: null, rev: null });
+  const [errors, setErrors] = useState({ base: null, lpv: null, rev: null });
+  // rev: base + orders / revenue -> ROAS (also serves CPM / CTR)
+  const need = metric === 'ROAS' ? 'rev' : metric === 'CPLV' ? 'lpv' : (sets.rev ? 'rev' : sets.lpv ? 'lpv' : 'base');
 
   useEffect(() => {
     if (sets[need] || errors[need]) return;
     const ctrl = new AbortController();
-    fetchTrend(params, { campaign, platform, lens, lpv: need === 'lpv' }, ctrl.signal)
+    fetchTrend(params, { campaign, platform, lens, lpv: need === 'lpv', rev: need === 'rev' }, ctrl.signal)
       .then(data => setSets(s => ({ ...s, [need]: data })))
       .catch(e => { if (e.name !== 'AbortError') setErrors(x => ({ ...x, [need]: e.message })); });
     return () => ctrl.abort();
@@ -215,11 +225,12 @@ export default function TrendPanel({ target, params, goals, theme, darkMode, onC
   const total = days.reduce((a, d) => ({
     spend: a.spend + d.spend, impressions: a.impressions + d.impressions,
     clicks: a.clicks + d.clicks, landing_page_views: a.landing_page_views + d.landing_page_views,
-  }), { spend: 0, impressions: 0, clicks: 0, landing_page_views: 0 });
+    orders: a.orders + (d.orders || 0), revenue: a.revenue + (d.revenue || 0),
+  }), { spend: 0, impressions: 0, clicks: 0, landing_page_views: 0, orders: 0, revenue: 0 });
   const periodValue = METRICS[metric].calc(total);
   const period = periodValue == null ? null : periodValue * (METRICS[metric].money ? toGoal : 1);
   const withData = points.filter(p => p.value != null);
-  const best = withData.length ? withData.reduce((a, b) => (metric === 'CTR' ? b.value > a.value : b.value < a.value) ? b : a) : null;
+  const best = withData.length ? withData.reduce((a, b) => ((metric === 'CTR' || metric === 'ROAS') ? b.value > a.value : b.value < a.value) ? b : a) : null;
   const latest = withData[withData.length - 1];
 
   const parsed = parseCampaignName(campaign);
@@ -259,10 +270,10 @@ export default function TrendPanel({ target, params, goals, theme, darkMode, onC
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div role="tablist" aria-label="Metric" style={{ display: 'flex', gap: 2, background: theme.surfaceAlt, padding: 3, borderRadius: 8, border: `1px solid ${theme.border}` }}>
               {Object.keys(METRICS).map(m => {
-                const disabled = m === 'CPLV' && !cplvAvailable;
+                const disabled = (m === 'CPLV' && !cplvAvailable) || (m === 'ROAS' && !roasAvailable);
                 return (
                   <button key={m} role="tab" aria-selected={metric === m} disabled={disabled}
-                    title={disabled ? 'CPLV is only shown for traffic campaigns on TikTok and Meta' : METRICS[m].hint}
+                    title={disabled ? (m === 'ROAS' ? 'ROAS is shown for campaigns opened from Commerce Lens' : 'CPLV is only shown for traffic campaigns on TikTok and Meta') : METRICS[m].hint}
                     onClick={() => setMetric(m)}
                     style={{ ...seg(metric === m), opacity: disabled ? 0.4 : 1, cursor: disabled ? 'not-allowed' : 'pointer' }}>
                     {m}
@@ -283,7 +294,7 @@ export default function TrendPanel({ target, params, goals, theme, darkMode, onC
                 ['Period', fmtValue(period, metric, currency)],
                 ...(goal ? [['Goal', fmtValue(goal.goal, metric, goal.currency)]] : []),
                 ['Latest day', latest ? `${fmtValue(latest.value, metric, currency)} · ${fmtDay(latest.date)}` : '—'],
-                [metric === 'CTR' ? 'Best day (highest)' : 'Best day (lowest)', best ? `${fmtValue(best.value, metric, currency)} · ${fmtDay(best.date)}` : '—'],
+                [(metric === 'CTR' || metric === 'ROAS') ? 'Best day (highest)' : 'Best day (lowest)', best ? `${fmtValue(best.value, metric, currency)} · ${fmtDay(best.date)}` : '—'],
               ].map(([k, v]) => (
                 <div key={k}>
                   <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: theme.textMuted, fontFamily: "'Space Grotesk', sans-serif" }}>{k}</div>
@@ -315,7 +326,7 @@ export default function TrendPanel({ target, params, goals, theme, darkMode, onC
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                 <thead>
                   <tr style={{ background: theme.surfaceAlt, position: 'sticky', top: 0 }}>
-                    {['Date', metric, 'Spend', 'Impressions', metric === 'CPLV' ? 'Landing page views' : 'Clicks'].map((h, i) => (
+                    {['Date', metric, 'Spend', metric === 'ROAS' ? 'Revenue' : 'Impressions', metric === 'CPLV' ? 'Landing page views' : metric === 'ROAS' ? 'Orders' : 'Clicks'].map((h, i) => (
                       <th key={h} style={{ padding: '8px 12px', textAlign: i ? 'right' : 'left', fontSize: 10.5, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: theme.textMuted }}>{h}</th>
                     ))}
                   </tr>
@@ -326,8 +337,8 @@ export default function TrendPanel({ target, params, goals, theme, darkMode, onC
                       <td style={{ padding: '7px 12px' }}>{fmtDay(p.date)}</td>
                       <td style={{ padding: '7px 12px', textAlign: 'right', fontWeight: 600 }}>{fmtValue(p.value, metric, currency)}</td>
                       <td style={{ padding: '7px 12px', textAlign: 'right', color: theme.textSecondary }}>{fmtValue(p.spend, 'CPM', currency)}</td>
-                      <td style={{ padding: '7px 12px', textAlign: 'right', color: theme.textSecondary }}>{p.impressions.toLocaleString('en-US')}</td>
-                      <td style={{ padding: '7px 12px', textAlign: 'right', color: theme.textSecondary }}>{(metric === 'CPLV' ? p.landing_page_views : p.clicks).toLocaleString('en-US')}</td>
+                      <td style={{ padding: '7px 12px', textAlign: 'right', color: theme.textSecondary }}>{metric === 'ROAS' ? fmtValue(p.revenue, 'CPM', currency) : p.impressions.toLocaleString('en-US')}</td>
+                      <td style={{ padding: '7px 12px', textAlign: 'right', color: theme.textSecondary }}>{Math.round(metric === 'CPLV' ? p.landing_page_views : metric === 'ROAS' ? (p.orders || 0) : p.clicks).toLocaleString('en-US')}</td>
                     </tr>
                   ))}
                 </tbody>
