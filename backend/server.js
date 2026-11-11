@@ -537,7 +537,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
         });
       }
       if (errors.length === sources.length) throw new Error(errors[0]);
-      return { currency: 'SGD', months, dateRange: range, markets: out, campaignMonths, missingFx: [...missingFx], partialErrors: errors };
+      return { currency: 'SGD', months, dateRange: range, markets: out, campaignMonths, fx, missingFx: [...missingFx], partialErrors: errors };
     }, MONTHLY_TTL);
 
     res.json(result);

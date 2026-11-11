@@ -13,26 +13,36 @@ const CAMPAIGN_PLATFORMS = [
 // (e.g. ID: IDR and SGD) get separate sections instead of a summed total.
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-// Previous calendar month's ROAS (from the monthly data, SGD) for one source:
+// Previous calendar month (from the monthly data, SGD) for one source:
 // 'cpas' | 'tiktok' | 'meta' | 'google'. The month is the one before the
 // selected range starts (Last 7 days in Nov -> Oct; Last month = Oct -> Sep).
-function makeRoasPrev(monthlyData, market, rangeStart, source) {
+// ROAS compares directly. Spend and orders are totals, so they compare as a
+// daily average: this period's total / its days vs last month's / its days.
+// Spend is converted from SGD back to the table's currency.
+const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
+
+function makePrev(monthlyData, market, rangeStart, rangeEnd, source) {
   if (!monthlyData || !rangeStart) return null;
   const y = Number(rangeStart.slice(0, 4)), m = Number(rangeStart.slice(5, 7));
   const py = m === 1 ? y - 1 : y, pm = m === 1 ? 12 : m - 1;
   const key = `${py}-${String(pm).padStart(2, '0')}`;
-  const roas = x => (x && x.spend > 0 && x.revenue > 0 ? x.revenue / x.spend : null);
+  const prevDays = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+  const periodDays = rangeEnd ? daysBetween(rangeStart, rangeEnd) : null;
+  const fx = monthlyData.fx || {};
+  const pack = x => (x ? { roas: x.spend > 0 && x.revenue > 0 ? x.revenue / x.spend : null, spendSgd: x.spend, orders: x.orders } : null);
   const byCampaign = monthlyData.campaignMonths?.[market]?.[source] || {};
   const month = (monthlyData.markets?.[market] || []).find(x => x.month === key);
   return {
-    label: MON[pm - 1],
-    campaign: name => roas(byCampaign[name]?.[key]),
-    total: roas(month?.byPlatform?.[source]),
+    label: MON[pm - 1], prevDays, periodDays,
+    // SGD -> table currency (null when the FOREX tab has no rate for it)
+    toLocal: (sgd, currency) => (sgd == null ? null : currency === 'SGD' ? sgd : fx[currency] ? sgd / fx[currency] : null),
+    campaign: name => pack(byCampaign[name]?.[key]),
+    total: pack(month?.byPlatform?.[source]),
   };
 }
 
-export default function CommerceLens({ theme, darkMode, commerce, campaigns, loading, onTrend, monthly, marketName, market, rangeStart }) {
-  const roasPrevFor = source => makeRoasPrev(monthly?.data, market, rangeStart, source);
+export default function CommerceLens({ theme, darkMode, commerce, campaigns, loading, onTrend, monthly, marketName, market, rangeStart, rangeEnd }) {
+  const prevFor = source => makePrev(monthly?.data, market, rangeStart, rangeEnd, source);
   return (
     <div>
       <CommerceTrend
@@ -43,12 +53,12 @@ export default function CommerceLens({ theme, darkMode, commerce, campaigns, loa
         darkMode={darkMode}
         marketName={marketName}
       />
-      <CommerceTables theme={theme} commerce={commerce} campaigns={campaigns} loading={loading} onTrend={onTrend} roasPrevFor={roasPrevFor} />
+      <CommerceTables theme={theme} commerce={commerce} campaigns={campaigns} loading={loading} onTrend={onTrend} prevFor={prevFor} />
     </div>
   );
 }
 
-function CommerceTables({ theme, commerce, campaigns, loading, onTrend, roasPrevFor }) {
+function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor }) {
   const cpas = commerce?.cpas ?? [];
   const multiCurrency = cpas.length > 1;
   const campaignSections = CAMPAIGN_PLATFORMS.filter(p => campaigns?.[p.key]?.campaigns?.length > 0);
@@ -86,7 +96,8 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, roasPrev
           lens="commerce"
           onTrend={onTrend}
           variant="commerce"
-          roasPrev={roasPrevFor('cpas')}
+          prev={prevFor('cpas')}
+          prevTotalsRoasOnly={multiCurrency}
         />
       ))}
       {campaignSections.map(p => (
@@ -100,7 +111,7 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, roasPrev
           lens="brand"
           onTrend={onTrend}
           variant="commerce"
-          roasPrev={roasPrevFor(p.key)}
+          prev={prevFor(p.key)}
         />
       ))}
     </div>

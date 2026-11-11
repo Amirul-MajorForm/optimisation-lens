@@ -26,10 +26,10 @@ const minWidthOf = cols => CAMPAIGN_COL_MIN + cols.filter(c => !c.grow).reduce((
 // Commerce Lens: sales outcome first. Same widths as Brand so tables still line up.
 const COMMERCE_COLUMNS = [
   { key: 'campaign_name', label: 'Campaign', align: 'left',  grow: true, format: null },
-  { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 126 },
+  { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 126, title: 'Small label: daily average spend vs the previous month' },
   { key: 'revenue',       label: 'Revenue',  align: 'right', format: 'currency', width: 126 },
   { key: 'roas',          label: 'ROAS',     align: 'right', format: 'roas',     width: 98, title: 'Return on ad spend = revenue / spend. Small label: change vs the previous month' },
-  { key: 'orders',        label: 'Orders',   align: 'right', format: 'number' },
+  { key: 'orders',        label: 'Orders',   align: 'right', format: 'number', title: 'Small label: daily average orders vs the previous month' },
   { key: 'cpa',           label: 'CPA',      align: 'right', format: 'currency', title: 'Cost per acquisition = spend / orders' },
   { key: 'impressions',   label: 'Impr.',    align: 'right', format: 'compact' },
   { key: 'ctr',           label: 'CTR',      align: 'right', format: 'percent' },
@@ -145,18 +145,47 @@ function SkeletonRow({ cols }) {
   );
 }
 
-// "▲ 12% vs Oct" under a ROAS value: change vs the previous calendar month
-export function RoasVsPrevious({ current, previous, label, theme }) {
+// "▲ 12% vs Oct" under a value: change vs the previous calendar month
+export function VsPrevious({ current, previous, label, tip, theme }) {
   if (current == null || !(previous > 0)) return null;
   const pct = ((current - previous) / previous) * 100;
   const dark = theme.bg === '#080d1a';
   const color = pct >= 0 ? (dark ? '#34d399' : '#047857') : (dark ? '#f87171' : '#b91c1c');
   const a = Math.abs(pct);
   return (
-    <span title={`${label} ROAS: ${previous.toFixed(2)}x`} style={{ display: 'block', fontSize: 10.5, fontWeight: 600, color, lineHeight: 1.3, cursor: 'help' }}>
+    <span title={tip} style={{ display: 'block', fontSize: 10.5, fontWeight: 600, color, lineHeight: 1.3, cursor: 'help', whiteSpace: 'nowrap' }}>
       {pct >= 0 ? '▲' : '▼'} {a < 10 ? a.toFixed(1) : Math.round(a)}% vs {label}
     </span>
   );
+}
+
+const PREV_KEYS = ['roas', 'spend', 'orders'];
+const perDay = v => `${v}/day`;
+
+// Callout for one cell: current value (this period's total or ratio) vs the
+// previous-month pack { roas, spendSgd, orders } from CommerceLens.makePrev.
+function prevNote(key, current, prevPack, prev, currency, theme) {
+  if (!prev || !prevPack || current == null || current === '') return null;
+  const L = prev.label;
+  if (key === 'roas') {
+    return <VsPrevious current={current} previous={prevPack.roas} label={L} theme={theme}
+      tip={prevPack.roas != null ? `${L} ROAS: ${prevPack.roas.toFixed(2)}x` : undefined} />;
+  }
+  if (!prev.periodDays || !prev.prevDays) return null;
+  const nowDaily = Number(current) / prev.periodDays;
+  if (key === 'spend') {
+    const prevTotal = prev.toLocal(prevPack.spendSgd, currency);
+    if (prevTotal == null) return null;
+    const prevDaily = prevTotal / prev.prevDays;
+    return <VsPrevious current={nowDaily} previous={prevDaily} label={L} theme={theme}
+      tip={`Daily average spend: ${perDay(fmt(nowDaily, 'currency', currency))} this period (${prev.periodDays} days) vs ${perDay(fmt(prevDaily, 'currency', currency))} in ${L} (${fmt(prevTotal, 'currency', currency)} over ${prev.prevDays} days)`} />;
+  }
+  if (key === 'orders') {
+    const prevDaily = (prevPack.orders || 0) / prev.prevDays;
+    return <VsPrevious current={nowDaily} previous={prevDaily} label={L} theme={theme}
+      tip={`Daily average orders: ${nowDaily.toFixed(1)}/day this period (${prev.periodDays} days) vs ${prevDaily.toFixed(1)}/day in ${L} (${Math.round(prevPack.orders || 0).toLocaleString('en-US')} over ${prev.prevDays} days)`} />;
+  }
+  return null;
 }
 
 function KPIRow({ kpis, total, theme, currency, notes }) {
@@ -188,7 +217,7 @@ function KPIRow({ kpis, total, theme, currency, notes }) {
   );
 }
 
-export function PlatformSection({ platform, label, data, theme, loading, lens = 'brand', onTrend, variant = 'brand', roasPrev }) {
+export function PlatformSection({ platform, label, data, theme, loading, lens = 'brand', onTrend, variant = 'brand', prev, prevTotalsRoasOnly }) {
   const [sortKey, setSortKey] = useState('spend');
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
@@ -199,6 +228,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
 
   const { campaigns = [], total = {}, currency = 'SGD' } = data || {};
   const kpiTotal = { ...total, cplv: trafficCplv(campaigns), ...viewsThruplay(campaigns, platform) };
+  const totalPrevKeys = prevTotalsRoasOnly ? ['roas'] : PREV_KEYS;
 
   const sorted = [...campaigns].sort((a, b) => {
     const av = cellValue(a, sortKey, platform) ?? 0;
@@ -260,7 +290,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
             total={kpiTotal}
             theme={theme}
             currency={currency}
-            notes={roasPrev ? { roas: <RoasVsPrevious current={kpiTotal.roas} previous={roasPrev.total} label={roasPrev.label} theme={theme} /> } : null}
+            notes={prev ? Object.fromEntries(totalPrevKeys.map(k => [k, prevNote(k, kpiTotal[k], prev.total, prev, currency, theme)])) : null}
           />
 
           <div style={{ overflowX: 'auto' }}>
@@ -362,10 +392,10 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                   )}
                                   <span style={{ minWidth: 0 }}><BreakableName name={val} /></span>
                                 </div>
-                              ) : col.key === 'roas' && roasPrev ? (
+                              ) : prev && PREV_KEYS.includes(col.key) ? (
                                 <>
                                   {display}
-                                  <RoasVsPrevious current={val} previous={roasPrev.campaign(row.campaign_name)} label={roasPrev.label} theme={theme} />
+                                  {prevNote(col.key, val, prev.campaign(row.campaign_name), prev, currency, theme)}
                                 </>
                               ) : display}
                             </td>
@@ -386,7 +416,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                           color: theme.textPrimary, whiteSpace: 'nowrap',
                         }}>
                           {col.grow ? `Total · ${sorted.length} campaigns` : (v == null || v === '' ? '—' : fmt(v, col.format, currency))}
-                          {col.key === 'roas' && roasPrev && <RoasVsPrevious current={v} previous={roasPrev.total} label={roasPrev.label} theme={theme} />}
+                          {prev && totalPrevKeys.includes(col.key) && prevNote(col.key, v, prev.total, prev, currency, theme)}
                         </td>
                       );
                     })}

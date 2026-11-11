@@ -55,6 +55,14 @@ export default function App() {
     return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - days)).toISOString().slice(0, 10);
   }
 
+  // Last day of the selected range: presets end yesterday
+  function computeRangeEnd(params) {
+    if (params.endDate) return params.endDate;
+    if (!parseInt(params.dateRange)) return null;
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() - 1)).toISOString().slice(0, 10);
+  }
+
   function computeDateLabel(params) {
     if (params.startDate && params.endDate) {
       return `${fmtDateStr(params.startDate)} – ${fmtDateStr(params.endDate)}`;
@@ -333,6 +341,7 @@ export default function App() {
                   marketName={marketName}
                   market={market}
                   rangeStart={computeRangeStart(fetchParams)}
+                  rangeEnd={computeRangeEnd(fetchParams)}
                   monthly={{
                     ...commerceMonthly,
                     data: commerceMonthly.data && {
