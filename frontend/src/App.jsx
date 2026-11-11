@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable from './components/CampaignTable.jsx';
@@ -8,6 +8,7 @@ import CommerceLens from './components/CommerceLens.jsx';
 import GoalTracker from './components/GoalTracker.jsx';
 import TrendPanel from './components/TrendPanel.jsx';
 import SalesLens from './components/SalesLens.jsx';
+import TopAdsPanel from './components/TopAdsPanel.jsx';
 import Sidebar from './components/Sidebar.jsx';
 
 const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.markets || {}));
@@ -33,6 +34,10 @@ export default function App() {
   // Commerce monthly chart: since the start of the year, not tied to the date filter
   // Sales Lens: per market, loaded when the tab is opened for that market
   const [salesByMarket, setSalesByMarket] = useState({});
+  // Top ads drawer: results per lens + market + date range, loaded when opened
+  const [topAdsOpen, setTopAdsOpen] = useState(false);
+  const [topAds, setTopAds] = useState({});
+  const closeTopAds = useCallback(() => setTopAdsOpen(false), []);
   const [commerceMonthly, setCommerceMonthly] = useState({ data: null, loading: false, error: null, requested: false });
   // Goal tracking (Brand Lens) — loaded per date range, after/alongside brand data
   const [goals, setGoals] = useState(null); // { params, data }
@@ -200,6 +205,17 @@ export default function App() {
     if (activeTab === 'sales' && !salesByMarket[market]) loadSales(market);
   }, [activeTab, market, salesByMarket, loadSales]);
 
+  const topAdsLens = activeTab === 'commerce' ? 'commerce' : 'brand';
+  const topAdsKey = `${topAdsLens}|${market}|${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
+  useEffect(() => {
+    if (!topAdsOpen || activeTab === 'sales' || topAds[topAdsKey]) return;
+    const key = topAdsKey;
+    setTopAds(t => ({ ...t, [key]: { loading: true } }));
+    fetchTopAds(fetchParams, { market, lens: topAdsLens })
+      .then(data => setTopAds(t => ({ ...t, [key]: { data } })))
+      .catch(e => setTopAds(t => ({ ...t, [key]: { error: e.message } })));
+  }, [topAdsOpen, topAdsKey, activeTab]);
+
   const handleRefresh = () => {
     load();
     if (activeTab === 'brand') loadGoals();
@@ -268,6 +284,8 @@ export default function App() {
               dateLabel={dateLabel}
               onRefresh={handleRefresh}
               refreshing={isCommerce ? (loading || commerceLoading) : loading}
+              onTopAds={activeTab === 'sales' ? null : () => setTopAdsOpen(o => !o)}
+              topAdsOpen={topAdsOpen && activeTab !== 'sales'}
             />
 
             <main style={{ flex: 1, overflowY: 'auto', padding: '24px 24px 64px' }}>
@@ -326,6 +344,18 @@ export default function App() {
               )}
 
             </main>
+
+            {topAdsOpen && activeTab !== 'sales' && (
+              <TopAdsPanel
+                state={topAds[topAdsKey]}
+                lens={topAdsLens}
+                marketName={marketName}
+                dateLabel={dateLabel}
+                theme={theme}
+                darkMode={darkMode}
+                onClose={closeTopAds}
+              />
+            )}
 
             {trendTarget && (
               <TrendPanel

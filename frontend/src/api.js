@@ -44,5 +44,9 @@ export async function fetchSales(market, signal) {
   return res.json();
 }
 
+// Top ads drawer: ad-level results with thumbnails, loaded when opened
+export const fetchTopAds = (params, { market, lens }, signal) =>
+  getJSON('/api/top-ads', params, signal, { market, lens });
+
 // Commerce Lens: Meta CPAS accounts, only requested when the tab is opened
 export const fetchCommerce = (params, signal) => getJSON('/api/commerce', params, signal);

@@ -547,6 +547,88 @@ app.get('/api/commerce/monthly', async (req, res) => {
   }
 });
 
+// Top ads panel (on demand): ad-level results with creative thumbnails for one
+// market and date range. Brand lens: the market's Meta + TikTok brand accounts
+// (commerce campaigns left out). Commerce lens: the market's Meta CPAS accounts
+// with orders / revenue. Thumbnail links from Meta / TikTok expire after about
+// a day, so results are cached for 30 minutes.
+const TOP_ADS_TTL = 30 * 60 * 1000;
+
+app.get('/api/top-ads', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const market = String(req.query.market || 'sg').toLowerCase();
+    const lens = req.query.lens === 'commerce' ? 'commerce' : 'brand';
+    if (!MARKETS[market]) return res.status(400).json({ error: `Unknown market ${market}` });
+    const range = resolveDateRange(req.query);
+
+    const result = await cached(`topads_${lens}_${market}_${range.startDate}_${range.endDate}`, async () => {
+      const { fx } = await cached('goal_sheet', loadGoalSheet);
+      const opts = { priority: PRIORITY.user };
+      const sources = lens === 'commerce'
+        ? [{
+            platform: 'meta', label: 'Meta CPAS',
+            accounts: [...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD].filter(a => CPAS_MARKET[a] === market),
+            currencyOf: a => (CPAS_ACCOUNTS.SGD.includes(a) ? 'SGD' : MARKETS[market].currency.meta),
+            dimensions: ['campaign_name', 'ad_name', 'fads_ad_creative_thumbnail_url', 'fads_ad_preview_shareable_link'],
+            metrics: ['amount_spent', 'impressions', 'clicks', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'],
+          }]
+        : [
+            { platform: 'meta', label: 'Meta', accounts: [ACCOUNTS.meta[market]].filter(Boolean),
+              currencyOf: () => MARKETS[market].currency.meta,
+              dimensions: ['campaign_name', 'ad_name', 'fads_ad_creative_thumbnail_url', 'fads_ad_preview_shareable_link'],
+              metrics: ['amount_spent', 'impressions', 'clicks', 'fads_website_fb_landing_page_views', 'fads_video_thruplay_watched_actions'] },
+            { platform: 'tiktok', label: 'TikTok', accounts: [ACCOUNTS.tiktok[market]].filter(Boolean),
+              currencyOf: () => MARKETS[market].currency.tiktok,
+              dimensions: ['campaign_name', 'ad_name', 'ttads_video_cover_url'],
+              metrics: ['amount_spent', 'impressions', 'clicks', 'ttads_total_landing_page_view', 'ttads_video_watched_6s'] },
+          ];
+
+      const ads = [];
+      const notes = [];
+      for (const src of sources) {
+        if (!src.accounts.length) continue;
+        // One currency per query: group accounts by billing currency
+        const groups = new Map();
+        for (const a of src.accounts) groups.set(src.currencyOf(a), [...(groups.get(src.currencyOf(a)) || []), a]);
+        for (const [currency, accounts] of groups) {
+          try {
+            const raw = await makeQuery(accounts, src.metrics, range, { ...opts, dimensions: src.dimensions });
+            for (const row of raw?.data || []) {
+              const r = normalizeRow(row);
+              if (detectMarket(r.campaign_name) !== market) continue;
+              if (lens === 'brand' && isCommerceRow(row)) continue;
+              const spend = parseFloat(r.spend) || 0;
+              if (!(spend > 0)) continue;
+              const imp = parseFloat(r.impressions) || 0, clicks = parseFloat(r.clicks) || 0;
+              ads.push({
+                platform: src.platform, platformLabel: src.label,
+                ad: r.ad_name, campaign: r.campaign_name, currency,
+                thumbnail: r.ad_creative_thumbnail_url || r.video_cover_url || null,
+                previewUrl: r.ad_preview_shareable_link || null,
+                spend, spendSgd: fx[currency] ? spend * fx[currency] : null,
+                impressions: imp, clicks,
+                ctr: imp > 0 ? (clicks / imp) * 100 : null,
+                cpm: imp > 0 ? (spend / imp) * 1000 : null,
+                orders: r.orders || 0, revenue: r.revenue || 0,
+                roas: lens === 'commerce' ? r.roas : null,
+                landing_page_views: parseFloat(r.landing_page_views) || 0,
+              });
+            }
+          } catch (err) { notes.push(`${src.label}: ${err.message}`); console.error('[top ads]', src.label, err.message); }
+        }
+      }
+      if (!ads.length && notes.length) throw new Error(notes.join(' · '));
+      return { market, lens, dateRange: range, ads, notes };
+    }, TOP_ADS_TTL);
+
+    res.json(result);
+  } catch (err) {
+    console.error('[top ads error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/commerce', async (req, res) => {
   try {
     if (!requireKey(res)) return;

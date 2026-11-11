@@ -25,7 +25,7 @@ export default function Header({
   market, onMarketChange, marketName, activeMarkets,
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
-  dateLabel, onRefresh, refreshing,
+  dateLabel, onRefresh, refreshing, onTopAds, topAdsOpen,
 }) {
   const sel = {
     background: theme.surface,
@@ -135,6 +135,27 @@ export default function Header({
             Apply
           </button>
         </>
+      )}
+
+      {onTopAds && (
+        <button
+          onClick={onTopAds}
+          aria-pressed={!!topAdsOpen}
+          title="Top ads for this market and date range"
+          style={{
+            background: topAdsOpen ? theme.accentLight : theme.surfaceAlt,
+            border: `1px solid ${topAdsOpen ? theme.accent : theme.border}`,
+            borderRadius: 8, padding: '6px 11px', cursor: 'pointer',
+            color: topAdsOpen ? theme.accent : theme.textSecondary,
+            display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+            fontSize: 12.5, fontWeight: 600, fontFamily: "'DM Sans', sans-serif",
+          }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
+            <rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 17.5h7M17.5 14v7" />
+          </svg>
+          Top ads
+        </button>
       )}
 
       <button
