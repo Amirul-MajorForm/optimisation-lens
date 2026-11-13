@@ -6,13 +6,23 @@ export const TEAM_ID = process.env.TMR_TEAM_ID || '019d0ca3-ce95-7387-a650-5e055
 // TMR returns spend/CPM/CPC in the account's own currency (no conversion).
 // All TikTok and Google accounts bill in SGD; Meta bills in local currency.
 export const MARKETS = {
-  sg: { name: 'OATSIDE SG', currency: { tiktok: 'SGD', meta: 'SGD', google: 'SGD' } },
+  sg: { name: 'OATSIDE SG', currency: { tiktok: 'SGD', meta: 'SGD', google: 'SGD', amazon: 'SGD' } },
   my: { name: 'OATSIDE MY', currency: { tiktok: 'SGD', meta: 'MYR', google: 'SGD' } },
   ph: { name: 'OATSIDE PH', currency: { tiktok: 'SGD', meta: 'PHP', google: 'SGD' } },
   vn: { name: 'OATSIDE VN', currency: { tiktok: 'SGD', meta: 'VND', google: 'SGD' } },
   id: { name: 'OATSIDE ID', currency: { tiktok: 'SGD', meta: 'IDR', google: 'SGD' } },
   th: { name: 'OATSIDE TH', currency: { tiktok: 'SGD', meta: 'THB', google: 'SGD' } },
+  // Japan: Amazon only (Commerce Lens)
+  jp: { name: 'OATSIDE JP', currency: { tiktok: 'SGD', meta: 'SGD', google: 'SGD', amazon: 'JPY' } },
 };
+
+// Amazon Ads (Commerce Lens) marketplace profiles. Queried together; each
+// campaign's market comes from its name (JP_..., SG_...) like other platforms,
+// and its currency from MARKETS[market].currency.amazon.
+export const AMAZON_ACCOUNTS = [
+  'amazonads_1325552030347508-JP', // Amazon Japan (JPY)
+  'amazonads_1916425481164095-SG', // Amazon Singapore (SGD)
+];
 
 // All accounts per platform across every market (for single bulk query)
 // Brand (non-CPAS) accounts per platform and market
@@ -95,8 +105,10 @@ export function isCommerceRow(row) {
   return ['gmv_cost', 'gmv_orders', 'gmv_gross_revenue'].some(k => parseFloat(row?.[k] ?? row?.[`ttads_${k}`]) > 0);
 }
 
+// Also commerce by name: TikTok GMV Max ("GMV") and Google Shopping ("Shopping")
+// campaigns, even in a period where they report no GMV / conversion data.
 export function isCommerceCampaign(name) {
-  return /_(sales|conversion)_/i.test(name || '');
+  return /_(sales|conversion)_|gmv|shopping/i.test(name || '');
 }
 
 export function getDateRange(days) {
@@ -236,15 +248,17 @@ export function splitByMarket(tmrResponse) {
 export function normalizeRow(row) {
   // Strip connector prefixes from prefixed field ids (ttads_reach -> reach)
   const out = Object.fromEntries(
-    Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw)_/, ''), v])
+    Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw|amazonads)_/, ''), v])
   );
   if ('amount_spent' in out) { out.spend = out.amount_spent; delete out.amount_spent; }
   // TikTok GMV Max campaigns report spend only as gmv_cost
   if (!(parseFloat(out.spend) > 0) && parseFloat(out.gmv_cost) > 0) out.spend = out.gmv_cost;
+  // Amazon names its spend "cost" (requested as a fallback to amount_spent)
+  if (!(parseFloat(out.spend) > 0) && parseFloat(out.cost) > 0) out.spend = out.cost;
   // One orders / revenue field across sources (first one with data wins)
   const firstNum = keys => { for (const k of keys) { const n = parseFloat(out[k]); if (n > 0) return n; } return 0; };
-  out.orders  = firstNum(['gmv_orders', 'collab_action_omni_purchase', 'all_purchases', 'conversions', 'metrics_conversions']);
-  out.revenue = firstNum(['gmv_gross_revenue', 'collab_ads_value_omni_purchase', 'purchase_conversions_all', 'metrics_conversions_value']);
+  out.orders  = firstNum(['gmv_orders', 'collab_action_omni_purchase', 'all_purchases', 'conversions', 'metrics_conversions', 'total_purchases']);
+  out.revenue = firstNum(['gmv_gross_revenue', 'collab_ads_value_omni_purchase', 'purchase_conversions_all', 'metrics_conversions_value', 'total_sales']);
   // One landing-page-view field across platforms (TikTok / Meta name it differently)
   if (out.landing_page_views == null) out.landing_page_views = out.total_landing_page_view ?? out.website_fb_landing_page_views;
   // Average watch time (seconds per video play): TikTok average_video_play,

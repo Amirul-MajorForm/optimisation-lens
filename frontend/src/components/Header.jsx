@@ -18,6 +18,7 @@ const MARKETS = [
   { value: 'vn', label: 'VN' },
   { value: 'id', label: 'ID', optional: true },
   { value: 'th', label: 'TH', optional: true },
+  { value: 'jp', label: 'JP', optional: true },
 ];
 
 export default function Header({

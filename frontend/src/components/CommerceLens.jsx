@@ -4,7 +4,7 @@ import CommerceTrend from './CommerceTrend.jsx';
 const CAMPAIGN_PLATFORMS = [
   { key: 'tiktok', label: 'TikTok · Sales & Conversion' },
   { key: 'meta',   label: 'Meta · Sales & Conversion' },
-  { key: 'google', label: 'Google · Sales & Conversion' },
+  { key: 'google', label: 'Google · Sales, Conversion & Shopping' },
 ];
 
 // Commerce Lens = every Meta CPAS account + brand-account campaigns on any
@@ -62,12 +62,13 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor 
   const cpas = commerce?.cpas ?? [];
   const multiCurrency = cpas.length > 1;
   const campaignSections = CAMPAIGN_PLATFORMS.filter(p => campaigns?.[p.key]?.campaigns?.length > 0);
+  const amazon = commerce?.amazon?.campaigns?.length > 0 ? commerce.amazon : null;
 
   if (loading && cpas.length === 0) {
     return <PlatformSection platform="meta" label="Meta CPAS" data={null} theme={theme} loading variant="commerce" />;
   }
 
-  if (cpas.length === 0 && campaignSections.length === 0) {
+  if (cpas.length === 0 && campaignSections.length === 0 && !amazon) {
     return (
       <div style={{
         background: theme.surface,
@@ -78,7 +79,7 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor 
         color: theme.textMuted,
         fontSize: 14,
       }}>
-        No CPAS, Sales or Conversion campaigns for this market in this period
+        No CPAS, Amazon, Sales, Conversion, GMV or Shopping campaigns for this market in this period
       </div>
     );
   }
@@ -100,6 +101,18 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor 
           prevTotalsRoasOnly={multiCurrency}
         />
       ))}
+      {amazon && (
+        <PlatformSection
+          platform="amazon"
+          label="Amazon · Sponsored Ads"
+          data={amazon}
+          theme={theme}
+          loading={loading}
+          lens="commerce"
+          variant="commerce"
+          prev={prevFor('amazon')}
+        />
+      )}
       {campaignSections.map(p => (
         <PlatformSection
           key={`campaigns-${p.key}`}

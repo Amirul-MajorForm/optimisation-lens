@@ -65,7 +65,7 @@ export const isViewsCampaign = name => /_views(_|$)/i.test(name || '');
 // (open rows reset when it changes). Campaign -> ad set -> ad (Google stops at
 // ad groups, which have no named ads).
 export const DrillContext = createContext(null);
-const LEVEL_NAME = { meta: ['ad set', 'ad sets'], tiktok: ['ad group', 'ad groups'], google: ['ad group', 'ad groups'] };
+const LEVEL_NAME = { meta: ['ad set', 'ad sets'], tiktok: ['ad group', 'ad groups'], google: ['ad group', 'ad groups'], amazon: ['ad group', 'ad groups'] };
 
 // "Avg 2.2s" under video views: seconds per video play, re-weighted by plays
 const WatchNote = ({ sec, platform, theme }) => (sec == null ? null : (
@@ -166,6 +166,12 @@ const PLATFORM_CONFIG = {
       { key: 'avg_watch_time', label: 'Avg Watch Time', format: 'seconds', optional: true },
       { key: 'cptp',        label: 'CPTP · Views',  format: 'currency', optional: true },
     ],
+  },
+  amazon: {
+    label: 'Amazon',
+    color: '#FF9900',
+    badge: { bg: '#fff3e0', text: '#b45309' },
+    kpis: [],
   },
   google: {
     label: 'Google',
@@ -310,7 +316,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
     const cKey = `c|${row.campaign_name}`;
     // TikTok GMV Max campaigns report only campaign-level totals (no ad groups)
     const gmvMax = platform === 'tiktok' && parseFloat(row.gmv_cost) > 0;
-    flatRows.push({ row, depth: 0, key: cKey, canOpen: !!drill && !gmvMax, toggle: () => toggleRow(cKey, { campaign: row.campaign_name }) });
+    flatRows.push({ row, depth: 0, key: cKey, canOpen: !!drill && !gmvMax && platform !== 'amazon', toggle: () => toggleRow(cKey, { campaign: row.campaign_name }) });
     if (!openRows[cKey]) continue;
     const cd = drillData[cKey];
     if (!cd || cd.loading || cd.error || !cd.rows.length) {

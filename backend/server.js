@@ -7,7 +7,7 @@ import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { normalizeRow } from './tmr.js';
 import { groupSales } from './sales.js';
-import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
+import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, AMAZON_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -189,6 +189,9 @@ const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', '
 const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach', 'ttads_total_landing_page_view',
                         'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue', 'ttads_video_watched_6s', 'ttads_engaged_view_15s', 'ttads_average_video_play'];
 const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks', 'conversions', 'gadw_metrics_conversions_value'];
+// Amazon Ads: ad orders / ad sales (Amazon's default attribution); cost is a
+// fallback in case amount_spent is not mapped for Amazon
+const AMAZON_METRICS = ['amount_spent', 'impressions', 'clicks', 'amazonads_cost', 'amazonads_total_purchases', 'amazonads_total_sales'];
 const CPAS_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views',
                         'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'];
 
@@ -473,7 +476,7 @@ app.get('/api/trend', async (req, res) => {
 // Commerce monthly trend (Commerce Lens header chart): spend, orders, revenue
 // per country per month since COMMERCE_TREND_START, across every commerce
 // source, converted to SGD with the FOREX tab so platforms can be added up.
-// Ignores the dashboard's date filter. 5 month-level queries (one per source),
+// Ignores the dashboard's date filter. 6 month-level queries (one per source),
 // cached for 3 hours.
 const COMMERCE_TREND_START = process.env.COMMERCE_TREND_START || '2026-01-01';
 const MONTHLY_TTL = 3 * 60 * 60 * 1000;
@@ -567,6 +570,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
         { key: 'tiktok', accounts: ALL_ACCOUNTS.tiktok, metrics: ['amount_spent', 'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'], currency: () => 'SGD', commerceOnly: true },
         { key: 'meta',   accounts: ALL_ACCOUNTS.meta,   metrics: ['amount_spent', 'fads_all_purchases', 'fads_purchase_conversions_all'], currency: m => MARKETS[m]?.currency.meta, commerceOnly: true },
         { key: 'google', accounts: ALL_ACCOUNTS.google, metrics: ['amount_spent', 'conversions', 'gadw_metrics_conversions_value'], currency: () => 'SGD', commerceOnly: true },
+        { key: 'amazon', accounts: AMAZON_ACCOUNTS, metrics: ['amount_spent', 'amazonads_cost', 'amazonads_total_purchases', 'amazonads_total_sales'], currency: m => MARKETS[m]?.currency.amazon },
       ];
 
       const markets = {};
@@ -713,11 +717,24 @@ app.get('/api/commerce', async (req, res) => {
     const dateRangeObj = resolveDateRange(req.query);
 
     const result = await cached(`commerce_${dateRangeObj.startDate}_${dateRangeObj.endDate}`, async () => {
-      const localRaw = await makeQuery(CPAS_ACCOUNTS.local, CPAS_METRICS, dateRangeObj);
-      const sgdRaw   = await makeQuery(CPAS_ACCOUNTS.SGD, CPAS_METRICS, dateRangeObj);
+      // All table requests are queued together (CPAS local, CPAS SGD, one per
+      // Amazon profile) so they go out ahead of the monthly chart's requests
+      const notes = [];
+      const [localRaw, sgdRaw, amazonRaw] = await Promise.all([
+        makeQuery(CPAS_ACCOUNTS.local, CPAS_METRICS, dateRangeObj),
+        makeQuery(CPAS_ACCOUNTS.SGD, CPAS_METRICS, dateRangeObj),
+        makeQuery(AMAZON_ACCOUNTS, AMAZON_METRICS, dateRangeObj).catch(err => {
+          notes.push(`Amazon: ${err.message}`);
+          console.error('[commerce amazon]', err.message);
+          return null;
+        }),
+      ]);
 
       const localSplit = splitByMarket(localRaw);
       const sgdSplit   = splitByMarket(sgdRaw);
+
+      // Amazon: one block per market, in that market's Amazon currency
+      const amazonSplit = splitByMarket(amazonRaw);
 
       const markets = Object.fromEntries(
         Object.entries(MARKETS).map(([code, cfg]) => {
@@ -731,11 +748,13 @@ app.get('/api/commerce', async (req, res) => {
           const cpas = [...byCurrency.entries()]
             .map(([currency, rows]) => ({ ...parsePlatformResult({ data: rows }), currency }))
             .filter(block => block.campaigns.length > 0);
-          return [code, { cpas, marketName: cfg.name }];
+          const amazonBlock = cfg.currency.amazon && amazonSplit[code]?.length
+            ? { ...parsePlatformResult({ data: amazonSplit[code] }), currency: cfg.currency.amazon } : null;
+          return [code, { cpas, amazon: amazonBlock?.campaigns.length ? amazonBlock : null, marketName: cfg.name }];
         })
       );
 
-      return { markets, dateRange: dateRangeObj };
+      return { markets, dateRange: dateRangeObj, notes };
     });
 
     res.json(result);

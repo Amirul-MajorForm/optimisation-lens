@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 // commerce platforms combined, in SGD. Three small multiples share the month
 // axis (different scales -> separate charts, never a dual axis).
 
-const PLATFORM_LABEL = { cpas: 'Meta CPAS', tiktok: 'TikTok', meta: 'Meta', google: 'Google' };
-const PLATFORM_ORDER = ['cpas', 'tiktok', 'meta', 'google'];
+const PLATFORM_LABEL = { cpas: 'Meta CPAS', amazon: 'Amazon', tiktok: 'TikTok', meta: 'Meta', google: 'Google' };
+const PLATFORM_ORDER = ['cpas', 'amazon', 'tiktok', 'meta', 'google'];
 
 const SHORT_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (ym, short = true) => short

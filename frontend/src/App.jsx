@@ -268,16 +268,18 @@ export default function App() {
         {/* Derive the current market's slice from the full all-markets response */}
       {(() => {
         const marketData = data?.markets?.[market] ?? null;
-        const marketName = data?.markets?.[market]?.marketName || '';
         // Markets with at least one campaign in the current pull (ID/TH only show when present)
         const commerceData = commerce?.params === fetchParams ? commerce.data : null;
+        const marketName = data?.markets?.[market]?.marketName || commerceData?.markets?.[market]?.marketName || '';
         const hasBrand = m => ['tiktok', 'meta', 'google'].some(p => m?.[p]?.campaigns?.length > 0);
         const hasCommerceCampaigns = m => ['tiktok', 'meta', 'google'].some(p => m?.commerceCampaigns?.[p]?.campaigns?.length > 0);
         const activeMarkets = new Set(
           Object.keys(MARKET_CODES(data, commerceData)).filter(code => activeTab === 'commerce'
-            ? (commerceData?.markets?.[code]?.cpas?.length > 0 || hasCommerceCampaigns(data?.markets?.[code]))
+            ? (commerceData?.markets?.[code]?.cpas?.length > 0 || commerceData?.markets?.[code]?.amazon || hasCommerceCampaigns(data?.markets?.[code]))
             : hasBrand(data?.markets?.[code]))
         );
+        // Commerce Lens always offers Indonesia (Meta CPAS) and Japan (Amazon)
+        if (activeTab === 'commerce') { activeMarkets.add('id'); activeMarkets.add('jp'); }
         const isCommerce = activeTab === 'commerce';
         const shownError = isCommerce ? (commerceError || error) : error;
         return (

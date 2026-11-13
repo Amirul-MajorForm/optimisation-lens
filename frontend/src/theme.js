@@ -45,7 +45,7 @@ export const METRIC_META = {
 };
 
 // Currencies with no minor unit in practice: show whole numbers
-const ZERO_DECIMAL = new Set(['VND', 'IDR']);
+const ZERO_DECIMAL = new Set(['JPY', 'VND', 'IDR']);
 
 export function fmt(value, type, currency) {
   if (value == null || (typeof value === 'number' && !isFinite(value))) return '—';
