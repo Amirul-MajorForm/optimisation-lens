@@ -352,6 +352,10 @@ function normalizeDate(v) {
 // the trend chart), because some campaigns run from another market's account.
 const ADSET_DIM = { meta: 'fads_adset_name', tiktok: 'ttads_adgroup_name', google: 'gadw_ad_group_name' };
 const DRILL_TTL = 30 * 60 * 1000;
+// TikTok will not combine GMV Max fields with ad group / ad names (the query
+// hangs until TMR's 504), so drill-downs leave them out. GMV Max campaigns
+// have no ad group breakdown and are not expandable in the UI.
+const GMV_FIELDS = ['ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'];
 
 function campaignAccounts(platform, lens, campaign) {
   const market = detectMarket(campaign);
@@ -370,7 +374,7 @@ app.get('/api/drill', async (req, res) => {
     const level = adset ? 'ad' : 'adset';
     const range = resolveDateRange(req.query);
     const metrics = lens === 'commerce' && platform === 'meta' ? CPAS_METRICS
-      : { meta: META_METRICS, tiktok: TIKTOK_METRICS, google: GOOGLE_METRICS }[platform];
+      : { meta: META_METRICS, tiktok: TIKTOK_METRICS.filter(m => !GMV_FIELDS.includes(m)), google: GOOGLE_METRICS }[platform];
     const { own, others } = campaignAccounts(platform, lens, campaign);
 
     const result = await cached(`drill_${lens}_${platform}_${level}_${campaign}_${adset || ''}_${range.startDate}_${range.endDate}`, async () => {
