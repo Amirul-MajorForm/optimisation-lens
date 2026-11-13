@@ -65,6 +65,36 @@ export const isViewsCampaign = name => /_views(_|$)/i.test(name || '');
 // (open rows reset when it changes). Campaign -> ad set -> ad (Google stops at
 // ad groups, which have no named ads).
 export const DrillContext = createContext(null);
+
+// Main goal metric per campaign, highlighted in the tables. The goal sheet's
+// model wins (App provides campaign name -> model for the market); otherwise
+// the buying type in the name (..._CPLV_Traffic_..., ..._CPV_Views_...), then
+// the objective word. CPV = 6-second views on TikTok, ThruPlays on Meta (same
+// as goal tracking).
+export const GoalModelContext = createContext(null);
+const MODEL_COLUMN = {
+  CPLV: () => 'cplv', CPM: () => 'cpm', CPC: () => 'cpc', CTR: () => 'ctr', CPA: () => 'cpa', ROAS: () => 'roas', ROI: () => 'roas',
+  CPV: platform => ({ tiktok: 'views_short', meta: 'views_15s' }[platform] || null),
+};
+const MODEL_LABEL = { views_short: { tiktok: '6s views' }, views_15s: { meta: 'ThruPlays' } };
+function goalModelOf(name, goalModels, variant) {
+  const fromSheet = goalModels?.get((name || '').trim().toLowerCase());
+  if (fromSheet && MODEL_COLUMN[fromSheet]) return { model: fromSheet, source: 'goal sheet' };
+  const token = (name || '').match(/(?:^|_)(CPLV|CPV|CPM|CPC|CTR|CPA|ROAS|ROI)(?=_|$)/i);
+  if (token) return { model: token[1].toUpperCase(), source: 'campaign name' };
+  if (/_traffic(_|$)/i.test(name || '')) return { model: 'CPLV', source: 'campaign objective' };
+  if (/_views(_|$)/i.test(name || '')) return { model: 'CPV', source: 'campaign objective' };
+  if (/_reach(_|$)/i.test(name || '')) return { model: 'CPM', source: 'campaign objective' };
+  if (variant === 'commerce') return { model: 'ROAS', source: 'Commerce Lens default' };
+  return null;
+}
+function goalCellOf(row, platform, goalModels, variant) {
+  const g = goalModelOf(row?.campaign_name, goalModels, variant);
+  const key = g ? MODEL_COLUMN[g.model](platform) : null;
+  if (!key) return null;
+  const what = MODEL_LABEL[key]?.[platform] ? `${g.model} (${MODEL_LABEL[key][platform]})` : g.model;
+  return { key, tip: `Main goal metric: ${what}, from the ${g.source}` };
+}
 const LEVEL_NAME = { meta: ['ad set', 'ad sets'], tiktok: ['ad group', 'ad groups'], google: ['ad group', 'ad groups'], amazon: ['ad group', 'ad groups'] };
 
 // "Avg 2.2s" under video views: seconds per video play, re-weighted by plays
@@ -277,6 +307,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
   const drill = useContext(DrillContext);
+  const goalModels = useContext(GoalModelContext);
   const [openRows, setOpenRows] = useState({});   // key -> true
   const [drillData, setDrillData] = useState({}); // key -> { loading | rows | error }
   useEffect(() => { setOpenRows({}); setDrillData({}); }, [drill?.rangeKey]);
@@ -375,6 +406,13 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
         <span style={{ fontSize: 13, color: theme.textMuted }}>
           {loading ? '…' : `${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''} · ${currency}`}
         </span>
+        {!loading && campaigns.some(c => goalCellOf(c, platform, goalModels, variant)) && (
+          <span title="Each campaign's main goal metric (goal sheet, else the buying type in the campaign name) is highlighted"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: theme.textMuted, cursor: 'help' }}>
+            <span style={{ width: 10, height: 10, borderRadius: 2, background: theme.accentLight, boxShadow: `inset 2px 0 0 ${theme.accent}` }} />
+            Goal metric
+          </span>
+        )}
         <svg
           width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={theme.textMuted} strokeWidth="2"
           strokeLinecap="round" strokeLinejoin="round"
@@ -446,6 +484,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                     )
                     : flatRows.map(({ row, depth, key: rowKey, status, level, canOpen, toggle }) => {
                       const base = depth === 0 ? 'transparent' : theme.surfaceAlt;
+                      const goalCell = row ? goalCellOf(row, platform, goalModels, variant) : null;
                       if (status) return (
                         <tr key={rowKey} style={{ borderBottom: `1px solid ${theme.border}`, background: base }}>
                           <td colSpan={columns.length} style={{ padding: `8px 10px 8px ${10 + depth * 16 + 16}px`, fontSize: 12, color: theme.textMuted }}>{status}</td>
@@ -467,12 +506,14 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                           return (
                             <td
                               key={col.key}
-                              title={col.key === 'campaign_name' ? (val || '') : undefined}
+                              title={col.key === 'campaign_name' ? (val || '') : goalCell?.key === col.key ? goalCell.tip : undefined}
+                              data-goal={goalCell?.key === col.key ? '1' : undefined}
                               style={{
                                 padding: '10px 10px',
                                 textAlign: col.align,
-                                color: col.key === 'campaign_name' ? theme.textPrimary : theme.textSecondary,
-                                fontWeight: col.key === 'campaign_name' ? (depth === 0 ? 500 : 400) : 400,
+                                color: col.key === 'campaign_name' ? theme.textPrimary : goalCell?.key === col.key ? theme.accent : theme.textSecondary,
+                                fontWeight: col.key === 'campaign_name' ? (depth === 0 ? 500 : 400) : goalCell?.key === col.key ? 700 : 400,
+                                ...(goalCell?.key === col.key ? { background: theme.accentLight, boxShadow: `inset 2px 0 0 ${theme.accent}` } : {}),
                                 verticalAlign: 'top',
                                 lineHeight: 1.45,
                                 // Campaign names wrap at "_" / "-"; numbers stay on one line

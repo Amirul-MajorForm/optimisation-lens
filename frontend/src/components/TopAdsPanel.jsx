@@ -16,14 +16,15 @@ const compact = v => (v >= 1e6 ? `${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `${(v /
 const SORTS = {
   spend: { label: 'Spend', value: a => a.spendSgd ?? a.spend, desc: true },
   ctr:   { label: 'CTR', value: a => a.ctr, desc: true, min: a => a.impressions >= 1000, note: 'ads with 1,000+ impressions' },
-  cpm:   { label: 'Lowest CPM', value: a => (a.cpm != null && a.spendSgd != null ? (a.spendSgd / a.spend) * a.cpm : a.cpm), desc: false, min: a => a.impressions >= 1000, note: 'ads with 1,000+ impressions, compared in SGD' },
+  cpm:   { label: 'CPM', value: a => (a.cpm != null && a.spendSgd != null ? (a.spendSgd / a.spend) * a.cpm : a.cpm), desc: false, min: a => a.impressions >= 1000, note: 'ads with 1,000+ impressions, compared in SGD' },
   roas:  { label: 'ROAS', value: a => a.roas, desc: true, commerceOnly: true, min: a => a.spendSgd == null || a.spendSgd >= 20, note: 'ads with SGD 20+ spend' },
 };
 
 export default function TopAdsPanel({ state, lens, marketName, dateLabel, theme, darkMode, onClose }) {
   const [sort, setSort] = useState(lens === 'commerce' ? 'roas' : 'spend');
   const [platform, setPlatform] = useState('all');
-  useEffect(() => { setSort(lens === 'commerce' ? 'roas' : 'spend'); setPlatform('all'); }, [lens]);
+  const [view, setView] = useState('top'); // 'top' | 'bottom'
+  useEffect(() => { setSort(lens === 'commerce' ? 'roas' : 'spend'); setPlatform('all'); setView('top'); }, [lens]);
   useEffect(() => {
     const onKey = e => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', onKey);
@@ -33,11 +34,20 @@ export default function TopAdsPanel({ state, lens, marketName, dateLabel, theme,
   const ads = state?.data?.ads || [];
   const platforms = [...new Set(ads.map(a => a.platform))];
   const sortDef = SORTS[sort];
-  const list = useMemo(() => ads
+  // Best first. Top 3 = best three; Bottom 3 = worst three (worst first), never
+  // overlapping the top 3
+  const ranked = useMemo(() => ads
     .filter(a => platform === 'all' || a.platform === platform)
     .filter(a => sortDef.value(a) != null && (!sortDef.min || sortDef.min(a)))
-    .sort((a, b) => (sortDef.desc ? sortDef.value(b) - sortDef.value(a) : sortDef.value(a) - sortDef.value(b)))
-    .slice(0, 10), [ads, platform, sort]);
+    .sort((a, b) => (sortDef.desc ? sortDef.value(b) - sortDef.value(a) : sortDef.value(a) - sortDef.value(b))), [ads, platform, sort]);
+  const n = ranked.length;
+  const list = view === 'top'
+    ? ranked.slice(0, 3).map((a, i) => ({ a, pos: i + 1 }))
+    : (n > 3 ? ranked.slice(Math.max(3, n - 3)).map((a, i) => ({ a, pos: Math.max(3, n - 3) + i + 1 })).reverse() : []);
+  const good = darkMode ? '#34d399' : '#047857', bad = darkMode ? '#f87171' : '#b91c1c';
+  const tile = view === 'top'
+    ? { bg: darkMode ? 'rgba(52,211,153,0.10)' : '#ecfdf5', edge: good }
+    : { bg: darkMode ? 'rgba(248,113,113,0.10)' : '#fef2f2', edge: bad };
 
   const chip = on => ({
     padding: '4px 10px', borderRadius: 999, cursor: 'pointer', fontSize: 11.5, fontWeight: 600,
@@ -68,6 +78,16 @@ export default function TopAdsPanel({ state, lens, marketName, dateLabel, theme,
             <button key={k} aria-pressed={sort === k} onClick={() => setSort(k)} style={chip(sort === k)}>{d.label}</button>
           ))}
         </div>
+        <div role="group" aria-label="Top or bottom ads" style={{ display: 'flex', gap: 0, marginTop: 10, border: `1px solid ${theme.border}`, borderRadius: 8, overflow: 'hidden', width: 'fit-content' }}>
+          {[['top', 'Top 3', good], ['bottom', 'Bottom 3', bad]].map(([k, label, c]) => (
+            <button key={k} aria-pressed={view === k} onClick={() => setView(k)} style={{
+              padding: '5px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+              fontFamily: "'DM Sans', sans-serif",
+              background: view === k ? (k === 'top' ? (darkMode ? 'rgba(52,211,153,0.16)' : '#d1fae5') : (darkMode ? 'rgba(248,113,113,0.16)' : '#fee2e2')) : theme.surface,
+              color: view === k ? c : theme.textSecondary,
+            }}>{k === 'top' ? '▲' : '▼'} {label}</button>
+          ))}
+        </div>
         {platforms.length > 1 && (
           <div role="group" aria-label="Filter top ads by platform" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
             {['all', ...platforms].map(k => (
@@ -77,7 +97,10 @@ export default function TopAdsPanel({ state, lens, marketName, dateLabel, theme,
             ))}
           </div>
         )}
-        {sortDef.note && <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 6 }}>Ranked among {sortDef.note}.</div>}
+        <div style={{ fontSize: 11, color: theme.textMuted, marginTop: 6 }}>
+          {view === 'top' ? 'Best' : 'Weakest'} by {sortDef.label === 'CPM' ? 'CPM (lower is better)' : sortDef.label}
+          {n ? ` · ${n} ad${n === 1 ? '' : 's'} ranked` : ''}{sortDef.note ? ` · ${sortDef.note}` : ''}.
+        </div>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '10px 14px 20px' }}>
@@ -86,9 +109,11 @@ export default function TopAdsPanel({ state, lens, marketName, dateLabel, theme,
         ))}
         {state?.error && <div style={{ fontSize: 13, color: darkMode ? '#fca5a5' : '#991b1b', padding: 8 }}>Could not load top ads: {state.error}</div>}
         {!state?.loading && !state?.error && list.length === 0 && (
-          <div style={{ fontSize: 13, color: theme.textMuted, padding: 8 }}>No ads with spend for this selection.</div>
+          <div style={{ fontSize: 13, color: theme.textMuted, padding: 8 }}>
+            {view === 'bottom' && n > 0 ? `Only ${n} ad${n === 1 ? '' : 's'} ranked, all shown in the top 3.` : 'No ads with spend for this selection.'}
+          </div>
         )}
-        {list.map((a, i) => {
+        {list.map(({ a, pos }) => {
           const [bg, fg] = (darkMode ? PLATFORM_BADGE[a.platform]?.dark : PLATFORM_BADGE[a.platform]?.light) || [theme.surfaceAlt, theme.textSecondary];
           const thumb = a.thumbnail ? (
             <img src={a.thumbnail} alt="" referrerPolicy="no-referrer" loading="lazy"
@@ -96,8 +121,11 @@ export default function TopAdsPanel({ state, lens, marketName, dateLabel, theme,
               onError={e => { e.currentTarget.style.visibility = 'hidden'; }} />
           ) : <div style={{ width: 72, height: 72, borderRadius: 8, background: theme.surfaceAlt }} />;
           return (
-            <div key={`${a.platform}-${a.campaign}-${a.ad}`} style={{ display: 'flex', gap: 10, padding: '10px 6px', borderBottom: `1px solid ${theme.border}` }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: theme.textMuted, width: 16, paddingTop: 2, textAlign: 'right' }}>{i + 1}</div>
+            <div key={`${a.platform}-${a.campaign}-${a.ad}`} data-view={view} style={{
+              display: 'flex', gap: 10, padding: '10px 10px', marginBottom: 8, borderRadius: 10,
+              background: tile.bg, border: `1px solid ${theme.border}`, borderLeft: `3px solid ${tile.edge}`,
+            }}>
+              <div title={`Rank ${pos} of ${n}`} style={{ fontSize: 12, fontWeight: 700, color: tile.edge, minWidth: 18, paddingTop: 2, textAlign: 'right' }}>#{pos}</div>
               <div style={{ flexShrink: 0, position: 'relative' }}>
                 {a.previewUrl
                   ? <a href={a.previewUrl} target="_blank" rel="noopener noreferrer" title="Open the ad" aria-label={`Open ad ${a.ad}`}>{thumb}</a>

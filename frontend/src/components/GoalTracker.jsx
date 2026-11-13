@@ -60,7 +60,13 @@ function CampaignTitle({ name, theme }) {
   );
 }
 
+// A goal's campaign has ended once its flight end date (from the sheet) is
+// before today, or the sheet's status says so
+const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+export const hasEnded = g => (g.flight?.end && g.flight.end < todayIso()) || /\b(ended|completed?|finished)\b/i.test(g.sheetStatus || '');
+
 function GoalCard({ g, theme, darkMode, trendPending }) {
+  const ended = hasEnded(g);
   const good = darkMode ? '#34d399' : '#047857';
   const bad = darkMode ? '#f87171' : '#b91c1c';
   const goodBg = darkMode ? 'rgba(52,211,153,0.12)' : '#ecfdf5';
@@ -73,10 +79,11 @@ function GoalCard({ g, theme, darkMode, trendPending }) {
   const vsWord = g.diffPct == null ? '' : (g.diffPct > 0 ? 'above' : 'below');
 
   return (
-    <div style={{
-      background: theme.surface,
+    <div data-goal-card="1" data-ended={ended ? '1' : undefined} title={ended ? `Campaign ended ${fmtFlight({ start: null, end: g.flight.end }).replace(/^\? – /, '') || ''}`.trim() : undefined} style={{
+      background: ended ? theme.surfaceAlt : theme.surface,
       border: `1px solid ${theme.border}`,
-      borderTop: `3px solid ${g.onTrack == null ? theme.borderStrong : g.onTrack ? good : bad}`,
+      borderTop: `3px solid ${ended || g.onTrack == null ? theme.borderStrong : g.onTrack ? good : bad}`,
+      ...(ended ? { opacity: 0.6, filter: 'grayscale(1)' } : {}),
       borderRadius: 12,
       padding: '14px 16px',
       display: 'flex',
@@ -91,7 +98,9 @@ function GoalCard({ g, theme, darkMode, trendPending }) {
         <span title={MODEL_HINT[g.model] || g.model} style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', color: theme.accent, background: theme.accentLight, padding: '2px 8px', borderRadius: 5, fontFamily: "'Space Grotesk', sans-serif", cursor: 'help' }}>
           {g.model}
         </span>
-        {g.sheetStatus && (
+        {ended ? (
+          <span style={{ marginLeft: 'auto', fontSize: 10, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: theme.textSecondary, background: theme.border, padding: '2px 8px', borderRadius: 5, fontFamily: "'Space Grotesk', sans-serif" }}>Ended</span>
+        ) : g.sheetStatus && (
           <span style={{ marginLeft: 'auto', fontSize: 11, color: theme.textMuted }}>{g.sheetStatus}</span>
         )}
       </div>
@@ -205,7 +214,7 @@ export default function GoalTracker({ theme, darkMode, goals, loading, error, pr
           )}
           {list.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12, opacity: loading ? 0.6 : 1 }}>
-              {list.map(g => <GoalCard key={`${g.platform}-${g.campaign}`} g={g} theme={theme} darkMode={darkMode} trendPending={trendPending} />)}
+              {[...list].sort((a, b) => hasEnded(a) - hasEnded(b)).map(g => <GoalCard key={`${g.platform}-${g.campaign}`} g={g} theme={theme} darkMode={darkMode} trendPending={trendPending} />)}
             </div>
           )}
         </div>

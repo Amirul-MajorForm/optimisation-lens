@@ -3,7 +3,7 @@ import { DARK, LIGHT } from './theme.js';
 import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
-import CampaignTable, { DrillContext } from './components/CampaignTable.jsx';
+import CampaignTable, { DrillContext, GoalModelContext } from './components/CampaignTable.jsx';
 import CommerceLens from './components/CommerceLens.jsx';
 import GoalTracker from './components/GoalTracker.jsx';
 import TrendPanel from './components/TrendPanel.jsx';
@@ -224,6 +224,10 @@ export default function App() {
       .catch(e => setTopAds(t => ({ ...t, [key]: { error: e.message } })));
   }, [topAdsOpen, topAdsKey, activeTab]);
 
+  // Goal sheet model per campaign (current market), for the table highlight
+  const goalList = goals?.data?.markets?.[market];
+  const goalModels = useMemo(() => new Map((goalList || []).map(g => [String(g.campaign).trim().toLowerCase(), String(g.model).toUpperCase()])), [goalList]);
+
   // Ad set / ad drill-down in the campaign tables (fetched per click)
   const drillRangeKey = `${market}|${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
   const drillValue = useMemo(() => ({
@@ -306,6 +310,7 @@ export default function App() {
             />
 
             <DrillContext.Provider value={drillValue}>
+            <GoalModelContext.Provider value={goalModels}>
             <main style={{ flex: 1, overflowY: 'auto', padding: '24px 24px 64px' }}>
               {shownError && (
                 <div style={{
@@ -363,6 +368,7 @@ export default function App() {
               )}
 
             </main>
+            </GoalModelContext.Provider>
             </DrillContext.Provider>
 
             {topAdsOpen && activeTab !== 'sales' && (
