@@ -247,6 +247,16 @@ export function normalizeRow(row) {
   out.revenue = firstNum(['gmv_gross_revenue', 'collab_ads_value_omni_purchase', 'purchase_conversions_all', 'metrics_conversions_value']);
   // One landing-page-view field across platforms (TikTok / Meta name it differently)
   if (out.landing_page_views == null) out.landing_page_views = out.total_landing_page_view ?? out.website_fb_landing_page_views;
+  // Average watch time (seconds per video play): TikTok average_video_play,
+  // Meta video_average_watch_time (Meta rounds it to whole seconds). Kept with
+  // its play count so totals can be re-weighted: sum(avg x plays) / sum(plays).
+  {
+    const avg = parseFloat(out.average_video_play ?? out.video_average_watch_time);
+    const plays = parseFloat(out.video_play_actions) || 0;
+    out.avg_watch_time = isFinite(avg) && plays > 0 ? avg : null;
+    out.watch_time_total = out.avg_watch_time != null ? avg * plays : 0;
+    out.watch_plays = out.avg_watch_time != null ? plays : 0;
+  }
   // Derive rate metrics per row (TMR doesn't return these at row level)
   const sp  = parseFloat(out.spend) || 0;
   const imp = parseFloat(out.impressions) || 0;
@@ -287,6 +297,7 @@ export function parsePlatformResult(tmrResponse) {
     video_watched_6s:   sum('video_watched_6s'),
     video_thruplay_watched_actions: sum('video_thruplay_watched_actions'),
     engaged_view_15s:   sum('engaged_view_15s'),
+    avg_watch_time:     sum('watch_plays') > 0 ? sum('watch_time_total') / sum('watch_plays') : null,
     orders:             sum('orders'),
     revenue:            sum('revenue'),
     roas: spendTotal > 0 && sum('revenue') > 0 ? sum('revenue') / spendTotal : null,

@@ -68,15 +68,28 @@ const isoDay = t => new Date(t).toISOString().slice(0, 10);
 
 // Sum rows that share the same dimension values (results of split queries). All
 // metrics we request are additive except reach, which is slightly overstated
-// when a single campaign's date range had to be split.
-const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name'];
+// when a single campaign's date range had to be split, and average watch time,
+// which is re-weighted by video plays (never summed).
+const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name', 'adset_name', 'adgroup_name', 'ad_group_name'];
+const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
+const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions' };
 function mergeRows(...results) {
   const byName = new Map();
   for (const r of results.flatMap(x => x?.data || [])) {
-    const key = `${r.campaign_name ?? ''}|${r.date ?? ''}|${r.year_month ?? ''}|${r.ad_name ?? ''}`;
+    const key = DIMENSION_KEYS.map(k => r[k] ?? '').join('|');
     const prev = byName.get(key);
     if (!prev) { byName.set(key, { ...r }); continue; }
+    // Weighted averages first, while both rows still hold their own play counts
+    for (const [avg, w] of Object.entries(WEIGHTED_AVG)) {
+      if (!(avg in r) && !(avg in prev)) continue;
+      const a1 = parseFloat(prev[avg]), w1 = parseFloat(prev[w]) || 0;
+      const a2 = parseFloat(r[avg]),    w2 = parseFloat(r[w]) || 0;
+      const num = (isFinite(a1) ? a1 * w1 : 0) + (isFinite(a2) ? a2 * w2 : 0);
+      const den = (isFinite(a1) ? w1 : 0) + (isFinite(a2) ? w2 : 0);
+      prev[avg] = den > 0 ? num / den : null;
+    }
     for (const [k, v] of Object.entries(r)) {
+      if (k in WEIGHTED_AVG) continue;
       if (DIMENSION_KEYS.includes(k)) continue;
       const n = parseFloat(v);
       if (isFinite(n)) prev[k] = (parseFloat(prev[k]) || 0) + n;
@@ -128,7 +141,8 @@ async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
       const [, bad, good] = suggestion;
       console.warn(`[TMR] field ${bad} -> ${good} (TMR suggestion), retrying`);
       const swap = list => list?.map(f => (f === bad ? good : f));
-      return makeQuerySplit(accounts, swap(metrics), dateRange, { ...opts, dimensions: swap(opts.dimensions), suggested: true });
+      const filters = opts.filters?.map(f => (f.fieldId === bad ? { ...f, fieldId: good } : f));
+      return makeQuerySplit(accounts, swap(metrics), dateRange, { ...opts, dimensions: swap(opts.dimensions), filters, suggested: true });
     }
     if (err.status === 400 && unknown.length) {
       console.warn(`[TMR] dropping unknown field(s) ${unknown.join(', ')} and retrying`);
@@ -166,11 +180,14 @@ async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
 //   Meta brand:     purchases (all) / purchase value (all)
 //   Google:         conversions / conversion value
 //   Meta CPAS:      collaborative-ads purchases / purchase value (CPAS_METRICS)
+// Average watch time is per video play on both platforms, so the plays are
+// fetched alongside it to re-weight it when rows are combined
 const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views', 'fads_website_fb_landing_page_views',
-                        'fads_all_purchases', 'fads_purchase_conversions_all', 'fads_video_thruplay_watched_actions'];
+                        'fads_all_purchases', 'fads_purchase_conversions_all', 'fads_video_thruplay_watched_actions',
+                        'fads_video_play_actions', 'fads_video_average_watch_time'];
 // Views campaigns: Meta 3s views (video_views) + ThruPlays; TikTok 6s views + 15s focused views
 const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach', 'ttads_total_landing_page_view',
-                        'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue', 'ttads_video_watched_6s', 'ttads_engaged_view_15s'];
+                        'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue', 'ttads_video_watched_6s', 'ttads_engaged_view_15s', 'ttads_average_video_play'];
 const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks', 'conversions', 'gadw_metrics_conversions_value'];
 const CPAS_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views',
                         'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'];
@@ -328,6 +345,62 @@ function normalizeDate(v) {
   if (/^\d{8}$/.test(s)) return `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}`;
   return s.slice(0, 10);
 }
+
+// Drill-down (on demand): one campaign's ad sets, or one ad set's ads.
+// Same metrics as the campaign tables; one TMR request per click, cached.
+// Accounts: the campaign's own market account first, then the others (like
+// the trend chart), because some campaigns run from another market's account.
+const ADSET_DIM = { meta: 'fads_adset_name', tiktok: 'ttads_adgroup_name', google: 'gadw_ad_group_name' };
+const DRILL_TTL = 30 * 60 * 1000;
+
+function campaignAccounts(platform, lens, campaign) {
+  const market = detectMarket(campaign);
+  const cpas = lens === 'commerce' && platform === 'meta';
+  const all = cpas ? [...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD] : ALL_ACCOUNTS[platform];
+  const own = cpas ? all.filter(a => CPAS_MARKET[a] === market) : [ACCOUNTS[platform]?.[market]].filter(Boolean);
+  return { own, others: all.filter(a => !own.includes(a)) };
+}
+
+app.get('/api/drill', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const { platform, campaign, adset, lens = 'brand' } = req.query;
+    if (!ADSET_DIM[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
+    if (adset && platform === 'google') return res.status(400).json({ error: 'Google drill-down stops at ad groups' });
+    const level = adset ? 'ad' : 'adset';
+    const range = resolveDateRange(req.query);
+    const metrics = lens === 'commerce' && platform === 'meta' ? CPAS_METRICS
+      : { meta: META_METRICS, tiktok: TIKTOK_METRICS, google: GOOGLE_METRICS }[platform];
+    const { own, others } = campaignAccounts(platform, lens, campaign);
+
+    const result = await cached(`drill_${lens}_${platform}_${level}_${campaign}_${adset || ''}_${range.startDate}_${range.endDate}`, async () => {
+      const opts = {
+        dimensions: ['campaign_name', ADSET_DIM[platform], ...(level === 'ad' ? ['ad_name'] : [])],
+        filters: [
+          { fieldId: 'campaign_name', operator: 'equals', value: campaign },
+          ...(adset ? [{ fieldId: ADSET_DIM[platform], operator: 'equals', value: adset }] : []),
+        ],
+        priority: PRIORITY.user, // the user is waiting on this one
+      };
+      const hasRows = r => (r?.data || []).length > 0;
+      let raw = own.length ? await makeQuery(own, metrics, range, opts) : null;
+      if (!hasRows(raw) && others.length) raw = await makeQuery(others, metrics, range, opts);
+      const rows = (raw?.data || []).map(row => {
+        const r = normalizeRow(row);
+        const adsetName = r.adset_name ?? r.adgroup_name ?? r.ad_group_name ?? '';
+        return { ...r, adset: adsetName, name: level === 'ad' ? (r.ad_name || '(unnamed ad)') : (adsetName || '(unnamed ad set)') };
+      })
+        // Same rule as campaigns: keep rows with spend, or with late-attributed revenue
+        .filter(r => parseFloat(r.spend || 0) > 0 || r.revenue > 0)
+        .sort((a, b) => (parseFloat(b.spend) || 0) - (parseFloat(a.spend) || 0));
+      return { platform, lens, level, campaign, adset: adset || null, dateRange: range, rows };
+    }, DRILL_TTL);
+    res.json(result);
+  } catch (err) {
+    console.error('[drill error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 app.get('/api/trend', async (req, res) => {
   try {

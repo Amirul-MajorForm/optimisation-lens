@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import { fmt } from '../theme.js';
 import { BreakableName } from '../campaignName.jsx';
 
@@ -60,6 +60,20 @@ const cplvOf = (spend, lpv) => {
 
 // Views campaigns are named ..._Views_... (e.g. PH_Meta_OATSIDE_Awareness_CPV_Views_2026_Kids-Phase1)
 export const isViewsCampaign = name => /_views(_|$)/i.test(name || '');
+
+// Drill-down: App provides the fetcher and a key for the current market/range
+// (open rows reset when it changes). Campaign -> ad set -> ad (Google stops at
+// ad groups, which have no named ads).
+export const DrillContext = createContext(null);
+const LEVEL_NAME = { meta: ['ad set', 'ad sets'], tiktok: ['ad group', 'ad groups'], google: ['ad group', 'ad groups'] };
+
+// "Avg 2.2s" under video views: seconds per video play, re-weighted by plays
+const WatchNote = ({ sec, platform, theme }) => (sec == null ? null : (
+  <span title={`Average watch time per video play${platform === 'meta' ? ' (Meta reports it in whole seconds per row, so this is approximate)' : ''}`}
+    style={{ display: 'block', fontSize: 10.5, fontWeight: 600, color: theme.textMuted, lineHeight: 1.3, whiteSpace: 'nowrap' }}>
+    Avg {sec.toFixed(1)}s
+  </span>
+));
 
 // Views campaigns only:
 //   short views  Meta 3-second video views | TikTok 6-second video views
@@ -132,6 +146,7 @@ const PLATFORM_CONFIG = {
       { key: 'cplv',               label: 'CPLV · Traffic', format: 'currency', optional: true },
       { key: 'views_short',        label: '6s Views · Views', format: 'compact', optional: true },
       { key: 'views_15s',          label: '15s Focused · Views', format: 'compact', optional: true },
+      { key: 'avg_watch_time',     label: 'Avg Watch Time', format: 'seconds', optional: true },
     ],
   },
   meta: {
@@ -148,6 +163,7 @@ const PLATFORM_CONFIG = {
       { key: 'cplv',        label: 'CPLV · Traffic', format: 'currency', optional: true },
       { key: 'views_short', label: '3s Views · Views', format: 'compact', optional: true },
       { key: 'views_15s',   label: 'ThruPlay · Views', format: 'compact', optional: true },
+      { key: 'avg_watch_time', label: 'Avg Watch Time', format: 'seconds', optional: true },
       { key: 'cptp',        label: 'CPTP · Views',  format: 'currency', optional: true },
     ],
   },
@@ -254,6 +270,20 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   const [sortKey, setSortKey] = useState('spend');
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
+  const drill = useContext(DrillContext);
+  const [openRows, setOpenRows] = useState({});   // key -> true
+  const [drillData, setDrillData] = useState({}); // key -> { loading | rows | error }
+  useEffect(() => { setOpenRows({}); setDrillData({}); }, [drill?.rangeKey]);
+
+  const toggleRow = (key, args) => {
+    const opening = !openRows[key];
+    setOpenRows(o => ({ ...o, [key]: opening }));
+    if (!opening || !drill || (drillData[key] && !drillData[key].error)) return;
+    setDrillData(d => ({ ...d, [key]: { loading: true } }));
+    drill.fetch({ platform, lens, ...args })
+      .then(r => setDrillData(d => ({ ...d, [key]: { rows: r.rows || [] } })))
+      .catch(e => setDrillData(d => ({ ...d, [key]: { error: e.message } })));
+  };
 
   const config = PLATFORM_CONFIG[platform];
   const columns = variant === 'commerce' ? COMMERCE_COLUMNS : COLUMNS;
@@ -263,12 +293,42 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   const kpiTotal = { ...total, cplv: trafficCplv(campaigns), ...viewsTotals(campaigns, platform) };
   const totalPrevKeys = prevTotalsRoasOnly ? ['roas'] : PREV_KEYS;
 
-  const sorted = [...campaigns].sort((a, b) => {
-    const av = cellValue(a, sortKey, platform) ?? 0;
-    const bv = cellValue(b, sortKey, platform) ?? 0;
+  const byCurrentSort = (a, b) => {
+    const k = sortKey === 'campaign_name' && a.name != null ? 'name' : sortKey;
+    const av = cellValue(a, k, platform) ?? 0;
+    const bv = cellValue(b, k, platform) ?? 0;
     const cmp = typeof av === 'string' ? av.localeCompare(bv) : (Number(av) - Number(bv));
     return sortDir === 'asc' ? cmp : -cmp;
-  });
+  };
+  const sorted = [...campaigns].sort(byCurrentSort);
+
+  // Table rows: campaigns, with open campaigns followed by their ad sets and
+  // open ad sets by their ads
+  const [one, many] = LEVEL_NAME[platform] || ['ad set', 'ad sets'];
+  const flatRows = [];
+  for (const row of sorted) {
+    const cKey = `c|${row.campaign_name}`;
+    flatRows.push({ row, depth: 0, key: cKey, canOpen: !!drill, toggle: () => toggleRow(cKey, { campaign: row.campaign_name }) });
+    if (!openRows[cKey]) continue;
+    const cd = drillData[cKey];
+    if (!cd || cd.loading || cd.error || !cd.rows.length) {
+      flatRows.push({ status: cd?.error ? `Could not load ${many}: ${cd.error}` : cd?.rows ? `No ${many} with spend in this period` : `Loading ${many}…`, depth: 1, key: `${cKey}|status` });
+      continue;
+    }
+    for (const as of [...cd.rows].sort(byCurrentSort)) {
+      const aKey = `a|${row.campaign_name}|${as.adset}`;
+      const adLevel = platform !== 'google';
+      flatRows.push({ row: as, depth: 1, key: aKey, level: one, canOpen: adLevel,
+        toggle: () => toggleRow(aKey, { campaign: row.campaign_name, adset: as.adset }) });
+      if (!adLevel || !openRows[aKey]) continue;
+      const ad = drillData[aKey];
+      if (!ad || ad.loading || ad.error || !ad.rows.length) {
+        flatRows.push({ status: ad?.error ? `Could not load ads: ${ad.error}` : ad?.rows ? 'No ads with spend in this period' : 'Loading ads…', depth: 2, key: `${aKey}|status` });
+        continue;
+      }
+      for (const a of [...ad.rows].sort(byCurrentSort)) flatRows.push({ row: a, depth: 2, key: `${aKey}|${a.name}`, level: 'ad' });
+    }
+  }
 
   const handleSort = (key) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
@@ -376,15 +436,23 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                         </td>
                       </tr>
                     )
-                    : sorted.map((row, i) => (
+                    : flatRows.map(({ row, depth, key: rowKey, status, level, canOpen, toggle }) => {
+                      const base = depth === 0 ? 'transparent' : theme.surfaceAlt;
+                      if (status) return (
+                        <tr key={rowKey} style={{ borderBottom: `1px solid ${theme.border}`, background: base }}>
+                          <td colSpan={columns.length} style={{ padding: `8px 10px 8px ${10 + depth * 16 + 16}px`, fontSize: 12, color: theme.textMuted }}>{status}</td>
+                        </tr>
+                      );
+                      return (
                       <tr
-                        key={i}
-                        style={{ borderBottom: `1px solid ${theme.border}` }}
+                        key={rowKey}
+                        data-depth={depth}
+                        style={{ borderBottom: `1px solid ${theme.border}`, background: base, fontSize: depth ? 12 : undefined }}
                         onMouseEnter={e => { e.currentTarget.style.background = theme.surfaceHover; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = base; }}
                       >
                         {columns.map(col => {
-                          const val = cellValue(row, col.key, platform);
+                          const val = col.grow && depth > 0 ? row.name : cellValue(row, col.key, platform);
                           const display = col.format == null
                             ? (val || '—')
                             : (val == null || val === '' ? '—' : fmt(val, col.format, currency));
@@ -396,7 +464,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                 padding: '10px 10px',
                                 textAlign: col.align,
                                 color: col.key === 'campaign_name' ? theme.textPrimary : theme.textSecondary,
-                                fontWeight: col.key === 'campaign_name' ? 500 : 400,
+                                fontWeight: col.key === 'campaign_name' ? (depth === 0 ? 500 : 400) : 400,
                                 verticalAlign: 'top',
                                 lineHeight: 1.45,
                                 // Campaign names wrap at "_" / "-"; numbers stay on one line
@@ -406,8 +474,8 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                               }}
                             >
                               {col.grow && val ? (
-                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-                                  {onTrend && (
+                                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6, paddingLeft: depth * 16 }}>
+                                  {depth === 0 && onTrend && (
                                     <button
                                       onClick={() => onTrend({ campaign: val, platform, lens, currency, variant })}
                                       title="View daily trend (CPM / CTR / CPLV)"
@@ -425,14 +493,44 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                       </svg>
                                     </button>
                                   )}
-                                  <span style={{ minWidth: 0 }}><BreakableName name={val} /></span>
+                                  {canOpen ? (
+                                    <button
+                                      onClick={toggle}
+                                      aria-expanded={!!openRows[rowKey]}
+                                      aria-label={`${openRows[rowKey] ? 'Hide' : 'Show'} ${depth === 0 ? many : 'ads'} for ${val}`}
+                                      title={`${openRows[rowKey] ? 'Hide' : 'Show'} ${depth === 0 ? many : 'ads'}`}
+                                      style={{
+                                        display: 'flex', alignItems: 'flex-start', gap: 4, minWidth: 0, padding: 0, border: 'none',
+                                        background: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit',
+                                      }}
+                                    >
+                                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
+                                        style={{ flexShrink: 0, marginTop: 3, color: theme.textMuted, transition: 'transform 0.15s', transform: openRows[rowKey] ? 'rotate(90deg)' : 'none' }}>
+                                        <path d="M9 6l6 6-6 6" />
+                                      </svg>
+                                      <span style={{ minWidth: 0 }}>
+                                        {level && <span style={{ display: 'block', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: theme.textMuted }}>{level}</span>}
+                                        <BreakableName name={val} />
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <span style={{ minWidth: 0, paddingLeft: depth ? 16 : 0 }}>
+                                      {level && <span style={{ display: 'block', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: theme.textMuted }}>{level}</span>}
+                                      <BreakableName name={val} />
+                                    </span>
+                                  )}
                                 </div>
                               ) : col.vtr && val != null ? (
                                 <>
                                   {display}
                                   <VtrNote vtr={vtrOf(val, row.impressions)} theme={theme} />
                                 </>
-                              ) : prev && PREV_KEYS.includes(col.key) ? (
+                              ) : col.key === 'video_views' && val != null && row.avg_watch_time != null ? (
+                                <>
+                                  {display}
+                                  <WatchNote sec={row.avg_watch_time} platform={platform} theme={theme} />
+                                </>
+                              ) : depth === 0 && prev && PREV_KEYS.includes(col.key) ? (
                                 <>
                                   {display}
                                   {prevNote(col.key, val, prev.campaign(row.campaign_name), prev, currency, theme)}
@@ -442,7 +540,8 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                           );
                         })}
                       </tr>
-                    ))
+                      );
+                    })
                 }
               </tbody>
               {variant === 'commerce' && !loading && sorted.length > 0 && (

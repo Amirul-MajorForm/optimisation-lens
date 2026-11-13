@@ -63,6 +63,8 @@ export function fmt(value, type, currency) {
       return Number(value).toLocaleString('en-US', { maximumFractionDigits: 0 });
     case 'percent':
       return `${Number(value).toFixed(2)}%`;
+    case 'seconds':
+      return `${Number(value).toFixed(1)}s`;
     case 'roas':
       return `${Number(value).toFixed(2)}x`;
     case 'compact': {

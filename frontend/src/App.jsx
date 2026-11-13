@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
-import CampaignTable from './components/CampaignTable.jsx';
+import CampaignTable, { DrillContext } from './components/CampaignTable.jsx';
 import CommerceLens from './components/CommerceLens.jsx';
 import GoalTracker from './components/GoalTracker.jsx';
 import TrendPanel from './components/TrendPanel.jsx';
@@ -224,6 +224,13 @@ export default function App() {
       .catch(e => setTopAds(t => ({ ...t, [key]: { error: e.message } })));
   }, [topAdsOpen, topAdsKey, activeTab]);
 
+  // Ad set / ad drill-down in the campaign tables (fetched per click)
+  const drillRangeKey = `${market}|${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
+  const drillValue = useMemo(() => ({
+    rangeKey: drillRangeKey,
+    fetch: args => fetchDrill(fetchParams, args),
+  }), [drillRangeKey]);
+
   const handleRefresh = () => {
     load();
     if (activeTab === 'brand') loadGoals();
@@ -296,6 +303,7 @@ export default function App() {
               topAdsOpen={topAdsOpen && activeTab !== 'sales'}
             />
 
+            <DrillContext.Provider value={drillValue}>
             <main style={{ flex: 1, overflowY: 'auto', padding: '24px 24px 64px' }}>
               {shownError && (
                 <div style={{
@@ -353,6 +361,7 @@ export default function App() {
               )}
 
             </main>
+            </DrillContext.Provider>
 
             {topAdsOpen && activeTab !== 'sales' && (
               <TopAdsPanel
