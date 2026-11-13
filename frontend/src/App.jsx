@@ -10,6 +10,7 @@ import TrendPanel from './components/TrendPanel.jsx';
 import SalesLens from './components/SalesLens.jsx';
 import TopAdsPanel from './components/TopAdsPanel.jsx';
 import Sidebar from './components/Sidebar.jsx';
+import { useIsMobile } from './useViewport.js';
 
 const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.markets || {}));
 
@@ -45,6 +46,9 @@ export default function App() {
   const [goalsError, setGoalsError] = useState(null);
 
   const theme = darkMode ? DARK : LIGHT;
+  const mobile = useIsMobile();
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => { if (!mobile) setNavOpen(false); }, [mobile]);
 
   // First day of the selected range (YYYY-MM-DD), for "vs previous month" labels
   function computeRangeStart(params) {
@@ -244,7 +248,7 @@ export default function App() {
   return (
     <div style={{
       display: 'flex',
-      height: '100vh',
+      height: mobile ? '100dvh' : '100vh',
       overflow: 'hidden',
       fontFamily: "'DM Sans', sans-serif",
       color: theme.textPrimary,
@@ -266,9 +270,12 @@ export default function App() {
         onTabChange={setActiveTab}
         darkMode={darkMode}
         onToggleDark={() => setDarkMode(d => !d)}
+        mobile={mobile}
+        open={navOpen}
+        onClose={() => setNavOpen(false)}
       />
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: theme.bg }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: theme.bg }}>
         {/* Derive the current market's slice from the full all-markets response */}
       {(() => {
         const marketData = data?.markets?.[market] ?? null;
@@ -307,11 +314,13 @@ export default function App() {
               refreshing={isCommerce ? (loading || commerceLoading) : loading}
               onTopAds={activeTab === 'sales' ? null : () => setTopAdsOpen(o => !o)}
               topAdsOpen={topAdsOpen && activeTab !== 'sales'}
+              mobile={mobile}
+              onMenu={() => setNavOpen(true)}
             />
 
             <DrillContext.Provider value={drillValue}>
             <GoalModelContext.Provider value={goalModels}>
-            <main style={{ flex: 1, overflowY: 'auto', padding: '24px 24px 64px' }}>
+            <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: mobile ? '12px 10px 48px' : '24px 24px 64px' }}>
               {shownError && (
                 <div style={{
                   background: darkMode ? '#3b0a0a' : '#fee2e2',

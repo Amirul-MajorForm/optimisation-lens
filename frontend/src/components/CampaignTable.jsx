@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { fmt } from '../theme.js';
 import { BreakableName } from '../campaignName.jsx';
+import { useIsMobile } from '../useViewport.js';
 
 // One shared column set so TikTok, Meta and Google tables line up exactly.
 // Metrics a platform does not report render as "—".
@@ -22,11 +23,21 @@ const COLUMNS = [
   { key: 'cptp',          label: 'CPTP',        align: 'right', format: 'currency', title: 'Cost per ThruPlay = spend / ThruPlays (Meta views campaigns only)' },
 ];
 // Cost columns need room for a currency code; counts and rates are short
-const METRIC_COL_WIDTH = 74;
+const METRIC_COL_WIDTH = 72;
 const CURRENCY_COL_WIDTH = 86;
-const CAMPAIGN_COL_MIN = 140;
 const colWidth = col => col.width ?? (col.format === 'currency' ? CURRENCY_COL_WIDTH : METRIC_COL_WIDTH);
-const minWidthOf = cols => CAMPAIGN_COL_MIN + cols.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
+const metricsWidthOf = cols => cols.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
+
+// Name column: wide enough for the longest visible campaign / ad set / ad name
+// on one line (measured with the real font), so names never wrap on desktop
+const NAME_FONT = depth => (depth === 0 ? "500 12px 'DM Sans', sans-serif" : depth === 1 ? "400 12px 'DM Sans', sans-serif" : "400 11.5px 'DM Sans', sans-serif");
+let measureCtx = null;
+function textWidth(text, font) {
+  if (typeof document === 'undefined') return (text || '').length * 7;
+  measureCtx ||= document.createElement('canvas').getContext('2d');
+  measureCtx.font = font;
+  return measureCtx.measureText(text || '').width;
+}
 
 // Commerce Lens: sales outcome first. Same widths as Brand so tables still line up.
 const COMMERCE_COLUMNS = [
@@ -307,6 +318,10 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   const [sortDir, setSortDir] = useState('desc');
   const [expanded, setExpanded] = useState(true);
   const drill = useContext(DrillContext);
+  const mobile = useIsMobile();
+  const [hover, setHover] = useState(null); // { r: row key, c: column key }
+  const [, setFontsReady] = useState(false);
+  useEffect(() => { document.fonts?.ready?.then(() => setFontsReady(true)); }, []);
   const goalModels = useContext(GoalModelContext);
   const [openRows, setOpenRows] = useState({});   // key -> true
   const [drillData, setDrillData] = useState({}); // key -> { loading | rows | error }
@@ -374,6 +389,19 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
     else { setSortKey(key); setSortDir('desc'); }
   };
 
+  // Name column width (desktop): longest name + its indent / buttons
+  const nameExtras = r => r.depth === 0 ? (onTrend ? 30 : 0) + (r.canOpen ? 16 : 0) : r.depth * 16 + 16;
+  const nameW = mobile ? 168 : Math.min(760, Math.max(200, ...flatRows.filter(r => !r.status).map(r =>
+    Math.ceil(textWidth(r.depth > 0 ? r.row.name : r.row.campaign_name, NAME_FONT(r.depth)) + nameExtras(r) + 26))));
+  const metricsW = metricsWidthOf(columns);
+
+  // Crosshair hover colours (layered over each cell's opaque base, so the
+  // sticky name column never shows content scrolling underneath it)
+  const dark = theme.bg === '#080d1a';
+  const lineTint = dark ? 'rgba(96,165,250,0.10)' : 'rgba(37,99,235,0.06)';
+  const crossTint = dark ? 'rgba(96,165,250,0.26)' : 'rgba(37,99,235,0.16)';
+  const layer = (tint, base) => (tint ? `linear-gradient(${tint}, ${tint}), ${base}` : base);
+
   return (
     <div style={{
       background: theme.surface,
@@ -434,11 +462,14 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
               : { views_short: <VtrNote vtr={kpiTotal.vtr_short} theme={theme} />, views_15s: <VtrNote vtr={kpiTotal.vtr_15s} theme={theme} /> }}
           />
 
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', minWidth: minWidthOf(columns), tableLayout: 'fixed', borderCollapse: 'collapse', fontSize: 12.5 }}>
+          {/* Scrolls inside itself (header row pinned to the top, names pinned to
+              the left) once it is taller than most of the screen */}
+          <div data-table-scroll style={{ overflow: 'auto', maxHeight: mobile ? '70vh' : 'min(75vh, 900px)', overscrollBehavior: 'contain' }}
+            onMouseLeave={() => setHover(null)}>
+            <table style={{ width: '100%', minWidth: nameW + metricsW, tableLayout: 'fixed', borderCollapse: 'separate', borderSpacing: 0, fontSize: 12 }}>
               <colgroup>
                 {columns.map(col => (
-                  <col key={col.key} style={col.grow ? undefined : { width: colWidth(col) }} />
+                  <col key={col.key} style={col.grow ? { width: `max(${nameW}px, calc(100% - ${metricsW}px))` } : { width: colWidth(col) }} />
                 ))}
               </colgroup>
               <thead>
@@ -451,14 +482,17 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                       style={{
                         padding: '8px 10px',
                         textAlign: col.align,
-                        fontSize: 10.5, fontWeight: 600,
+                        fontSize: 10, fontWeight: 600,
                         letterSpacing: '0.06em', textTransform: 'uppercase',
-                        color: sortKey === col.key ? theme.accent : theme.textMuted,
+                        color: sortKey === col.key || hover?.c === col.key ? theme.accent : theme.textMuted,
                         fontFamily: "'Space Grotesk', sans-serif",
                         cursor: 'pointer',
                         verticalAlign: 'bottom',
                         borderBottom: `1px solid ${theme.border}`,
                         userSelect: 'none',
+                        position: 'sticky', top: 0, zIndex: col.grow ? 3 : 2,
+                        ...(col.grow ? { left: 0, borderRight: `1px solid ${theme.border}` } : {}),
+                        background: layer(hover?.c === col.key && !col.grow ? crossTint : null, theme.surfaceAlt),
                       }}
                     >
                       {col.labels?.[platform] ?? col.label}
@@ -483,20 +517,18 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                       </tr>
                     )
                     : flatRows.map(({ row, depth, key: rowKey, status, level, canOpen, toggle }) => {
-                      const base = depth === 0 ? 'transparent' : theme.surfaceAlt;
+                      const base = depth === 0 ? theme.surface : theme.surfaceAlt;
                       const goalCell = row ? goalCellOf(row, platform, goalModels, variant) : null;
                       if (status) return (
-                        <tr key={rowKey} style={{ borderBottom: `1px solid ${theme.border}`, background: base }}>
-                          <td colSpan={columns.length} style={{ padding: `8px 10px 8px ${10 + depth * 16 + 16}px`, fontSize: 12, color: theme.textMuted }}>{status}</td>
+                        <tr key={rowKey}>
+                          <td colSpan={columns.length} style={{ padding: `6px 10px 6px ${10 + depth * 16 + 16}px`, fontSize: 12, color: theme.textMuted, background: base, borderBottom: `1px solid ${theme.border}` }}>{status}</td>
                         </tr>
                       );
                       return (
                       <tr
                         key={rowKey}
                         data-depth={depth}
-                        style={{ borderBottom: `1px solid ${theme.border}`, background: base, fontSize: depth ? 12 : undefined }}
-                        onMouseEnter={e => { e.currentTarget.style.background = theme.surfaceHover; }}
-                        onMouseLeave={e => { e.currentTarget.style.background = base; }}
+                        style={{ fontSize: depth === 2 ? 11.5 : 12 }}
                       >
                         {columns.map(col => {
                           const val = col.grow && depth > 0 ? row.name : cellValue(row, col.key, platform);
@@ -506,19 +538,26 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                           return (
                             <td
                               key={col.key}
-                              title={col.key === 'campaign_name' ? (val || '') : goalCell?.key === col.key ? goalCell.tip : undefined}
+                              title={col.key === 'campaign_name' ? `${level ? `${level[0].toUpperCase()}${level.slice(1)}: ` : ''}${val || ''}` : goalCell?.key === col.key ? goalCell.tip : undefined}
                               data-goal={goalCell?.key === col.key ? '1' : undefined}
+                              data-col={col.key}
+                              onMouseEnter={() => setHover(h => (h?.r === rowKey && h?.c === col.key ? h : { r: rowKey, c: col.key }))}
                               style={{
-                                padding: '10px 10px',
+                                padding: depth === 2 ? '4px 10px' : depth === 1 ? '6px 10px' : '8px 10px',
                                 textAlign: col.align,
-                                color: col.key === 'campaign_name' ? theme.textPrimary : goalCell?.key === col.key ? theme.accent : theme.textSecondary,
+                                color: col.key === 'campaign_name' ? (depth === 2 ? theme.textSecondary : theme.textPrimary) : goalCell?.key === col.key ? theme.accent : theme.textSecondary,
                                 fontWeight: col.key === 'campaign_name' ? (depth === 0 ? 500 : 400) : goalCell?.key === col.key ? 700 : 400,
-                                ...(goalCell?.key === col.key ? { background: theme.accentLight, boxShadow: `inset 2px 0 0 ${theme.accent}` } : {}),
+                                ...(goalCell?.key === col.key ? { boxShadow: `inset 2px 0 0 ${theme.accent}` } : {}),
+                                background: layer(
+                                  hover?.r === rowKey && hover?.c === col.key ? crossTint
+                                    : hover && (hover.r === rowKey || (hover.c === col.key && !col.grow)) ? lineTint : null,
+                                  goalCell?.key === col.key ? theme.accentLight : base),
+                                borderBottom: `1px solid ${theme.border}`,
                                 verticalAlign: 'top',
-                                lineHeight: 1.45,
-                                // Campaign names wrap at "_" / "-"; numbers stay on one line
+                                lineHeight: 1.4,
+                                // Names stay on one line on desktop (wrap on phones); numbers never wrap
                                 ...(col.grow
-                                  ? { overflowWrap: 'anywhere' }
+                                  ? { position: 'sticky', left: 0, zIndex: 1, borderRight: `1px solid ${theme.border}`, ...(mobile ? { overflowWrap: 'anywhere' } : { whiteSpace: 'nowrap' }) }
                                   : { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }),
                               }}
                             >
@@ -554,21 +593,17 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                       }}
                                     >
                                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-                                        style={{ flexShrink: 0, marginTop: 3, color: theme.textMuted, transition: 'transform 0.15s', transform: openRows[rowKey] ? 'rotate(90deg)' : 'none' }}>
+                                        style={{ flexShrink: 0, marginTop: 2, color: theme.textMuted, transition: 'transform 0.15s', transform: openRows[rowKey] ? 'rotate(90deg)' : 'none' }}>
                                         <path d="M9 6l6 6-6 6" />
                                       </svg>
-                                      <span style={{ minWidth: 0 }}>
-                                        {level && <span style={{ display: 'block', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: theme.textMuted }}>{level}</span>}
-                                        <BreakableName name={val} />
-                                      </span>
+                                      <span style={{ minWidth: 0 }}>{mobile ? <BreakableName name={val} /> : val}</span>
                                     </button>
                                   ) : (
-                                    <span style={{ minWidth: 0, paddingLeft: depth ? 16 : 0 }}>
-                                      {level && <span style={{ display: 'block', fontSize: 9.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: theme.textMuted }}>{level}</span>}
-                                      <BreakableName name={val} />
-                                    </span>
+                                    <span style={{ minWidth: 0, paddingLeft: depth ? 16 : 0 }}>{mobile ? <BreakableName name={val} /> : val}</span>
                                   )}
                                 </div>
+                              ) : depth === 2 && (col.vtr || col.key === 'video_views') && val != null ? (
+                                <span title={col.vtr ? `VTR ${vtrOf(val, row.impressions)?.toFixed(2) ?? '—'}%` : row.avg_watch_time != null ? `Avg watch time ${row.avg_watch_time.toFixed(1)}s per play` : undefined}>{display}</span>
                               ) : col.vtr && val != null ? (
                                 <>
                                   {display}
@@ -595,13 +630,15 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
               </tbody>
               {variant === 'commerce' && !loading && sorted.length > 0 && (
                 <tfoot>
-                  <tr style={{ background: theme.surfaceAlt, borderTop: `2px solid ${theme.borderStrong}` }}>
+                  <tr>
                     {columns.map(col => {
                       const v = col.grow ? null : kpiTotal[col.key];
                       return (
                         <td key={col.key} style={{
-                          padding: '10px 10px', textAlign: col.align, fontWeight: 700,
+                          padding: '8px 10px', textAlign: col.align, fontWeight: 700,
                           color: theme.textPrimary, whiteSpace: 'nowrap',
+                          background: theme.surfaceAlt, borderTop: `2px solid ${theme.borderStrong}`,
+                          ...(col.grow ? { position: 'sticky', left: 0, zIndex: 1, borderRight: `1px solid ${theme.border}` } : {}),
                         }}>
                           {col.grow ? `Total · ${sorted.length} campaigns` : (v == null || v === '' ? '—' : fmt(v, col.format, currency))}
                           {prev && totalPrevKeys.includes(col.key) && prevNote(col.key, v, prev.total, prev, currency, theme)}

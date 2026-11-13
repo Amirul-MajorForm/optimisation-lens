@@ -26,7 +26,7 @@ export default function Header({
   market, onMarketChange, marketName, activeMarkets,
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
-  dateLabel, onRefresh, refreshing, onTopAds, topAdsOpen,
+  dateLabel, onRefresh, refreshing, onTopAds, topAdsOpen, mobile = false, onMenu,
 }) {
   const sel = {
     background: theme.surface,
@@ -58,37 +58,51 @@ export default function Header({
     <header style={{
       background: theme.surface,
       borderBottom: `1px solid ${theme.border}`,
-      padding: '0 28px',
-      height: 64,
+      padding: mobile ? '10px 12px' : '0 28px',
+      height: mobile ? 'auto' : 64,
       display: 'flex',
       alignItems: 'center',
-      gap: 12,
+      flexWrap: mobile ? 'wrap' : 'nowrap',
+      gap: mobile ? 8 : 12,
       flexShrink: 0,
       transition: 'background 0.25s',
     }}>
-      <div style={{ marginRight: 'auto' }}>
+      {mobile && (
+        <button onClick={onMenu} aria-label="Open menu" style={{
+          order: 0, border: `1px solid ${theme.border}`, background: theme.surfaceAlt, color: theme.textSecondary,
+          width: 34, height: 34, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16" /></svg>
+        </button>
+      )}
+      <div style={{ marginRight: 'auto', order: 0, minWidth: 0 }}>
         <div style={{
           fontFamily: "'Space Grotesk', sans-serif",
           fontWeight: 700,
-          fontSize: 18,
+          fontSize: mobile ? 16 : 18,
           color: theme.textPrimary,
           lineHeight: 1.2,
+          whiteSpace: 'nowrap',
         }}>
           {marketName || 'OATSIDE'}
         </div>
         <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 1 }}>
-          Performance Dashboard
+          {mobile && dateLabel ? dateLabel : 'Performance Dashboard'}
         </div>
       </div>
 
+      {mobile && <div style={{ order: 3, flexBasis: '100%', height: 0 }} />}
+
       {/* Market tabs */}
-      <div style={{ display: 'flex', gap: 4, background: theme.surfaceAlt, borderRadius: 9, padding: 3, border: `1px solid ${theme.border}` }}>
+      <div style={{ display: 'flex', gap: 4, background: theme.surfaceAlt, borderRadius: 9, padding: 3, border: `1px solid ${theme.border}`,
+        ...(mobile ? { order: 4, flex: '1 1 auto', overflowX: 'auto', minWidth: 0 } : {}) }}>
         {MARKETS.filter(m => !m.optional || m.value === market || activeMarkets?.has(m.value)).map(m => (
           <button
             key={m.value}
             onClick={() => onMarketChange(m.value)}
             style={{
               padding: '5px 12px',
+              flexShrink: 0,
               borderRadius: 6,
               border: 'none',
               cursor: 'pointer',
@@ -105,18 +119,18 @@ export default function Header({
         ))}
       </div>
 
-      <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={sel}>
+      <select value={dateRange} onChange={e => onDateRangeChange(e.target.value)} style={mobile ? { ...sel, order: 5, flex: '0 0 auto' } : sel}>
         {DATE_RANGES.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
       </select>
 
-      {dateLabel && (
+      {dateLabel && !mobile && (
         <span style={{ fontSize: 12, color: theme.textMuted, whiteSpace: 'nowrap', flexShrink: 0 }}>
           {dateLabel}
         </span>
       )}
 
       {dateRange === 'custom' && (
-        <>
+        <div style={{ display: 'contents' }}>
           <input type="date" value={customStart} onChange={e => onCustomStartChange(e.target.value)} max={customEnd || undefined} style={dateInput} />
           <span style={{ color: theme.textMuted, fontSize: 12, flexShrink: 0 }}>→</span>
           <input type="date" value={customEnd} onChange={e => onCustomEndChange(e.target.value)} min={customStart || undefined} style={dateInput} />
@@ -135,7 +149,7 @@ export default function Header({
           >
             Apply
           </button>
-        </>
+        </div>
       )}
 
       {onTopAds && (
@@ -143,7 +157,9 @@ export default function Header({
           onClick={onTopAds}
           aria-pressed={!!topAdsOpen}
           title="Top ads for this market and date range"
+          aria-label="Top ads"
           style={{
+            ...(mobile ? { order: 1 } : {}),
             background: topAdsOpen ? theme.accentLight : theme.surfaceAlt,
             border: `1px solid ${topAdsOpen ? theme.accent : theme.border}`,
             borderRadius: 8, padding: '6px 11px', cursor: 'pointer',
@@ -155,7 +171,7 @@ export default function Header({
             <rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" />
             <rect x="3" y="14" width="7" height="7" rx="1.5" /><path d="M14 17.5h7M17.5 14v7" />
           </svg>
-          Top ads
+          {!mobile && 'Top ads'}
         </button>
       )}
 
@@ -163,7 +179,9 @@ export default function Header({
         onClick={onRefresh}
         disabled={refreshing}
         title="Refresh data"
+        aria-label="Refresh data"
         style={{
+          ...(mobile ? { order: 2 } : {}),
           background: theme.surfaceAlt,
           border: `1px solid ${theme.border}`,
           borderRadius: 8,

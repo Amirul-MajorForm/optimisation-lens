@@ -63,19 +63,27 @@ const TABS = [
   { id: 'sales',    label: 'Sales Lens',    icon: ICON_SALES },
 ];
 
-export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark }) {
+export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose }) {
+  // Phones: a drawer that slides in over the page (opened from the header's menu button)
+  const pick = id => { onTabChange(id); if (mobile) onClose?.(); };
   return (
-    <div style={{
+    <>
+    {mobile && open && (
+      <div onClick={onClose} aria-hidden="true" style={{ position: 'fixed', inset: 0, background: 'rgba(8,13,26,0.45)', zIndex: 140 }} />
+    )}
+    <div aria-hidden={mobile && !open ? true : undefined} style={{
       width: 240,
       flexShrink: 0,
       background: S.bg,
       display: 'flex',
       flexDirection: 'column',
-      height: '100vh',
-      position: 'sticky',
+      height: mobile ? '100dvh' : '100vh',
+      position: mobile ? 'fixed' : 'sticky',
       top: 0,
-      zIndex: 100,
+      left: 0,
+      zIndex: mobile ? 150 : 100,
       borderRight: `1px solid ${S.border}`,
+      ...(mobile ? { transform: open ? 'none' : 'translateX(-105%)', transition: 'transform 0.2s ease', visibility: open ? 'visible' : 'hidden' } : {}),
     }}>
       {/* Logo */}
       <div style={{
@@ -128,7 +136,7 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           return (
             <button
               key={tab.id}
-              onClick={() => onTabChange(tab.id)}
+              onClick={() => pick(tab.id)}
               style={{
                 width: '100%',
                 display: 'flex',
@@ -211,5 +219,6 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
         </button>
       </div>
     </div>
+    </>
   );
 }
