@@ -286,6 +286,7 @@ export function parsePlatformResult(tmrResponse) {
     landing_page_views: sum('landing_page_views'),
     video_watched_6s:   sum('video_watched_6s'),
     video_thruplay_watched_actions: sum('video_thruplay_watched_actions'),
+    engaged_view_15s:   sum('engaged_view_15s'),
     orders:             sum('orders'),
     revenue:            sum('revenue'),
     roas: spendTotal > 0 && sum('revenue') > 0 ? sum('revenue') / spendTotal : null,

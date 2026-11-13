@@ -6,7 +6,7 @@ import { BreakableName } from '../campaignName.jsx';
 // Metrics a platform does not report render as "—".
 const COLUMNS = [
   { key: 'campaign_name', label: 'Campaign',    align: 'left',  grow: true, format: null },
-  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency', width: 126 },
+  { key: 'spend',         label: 'Spend',       align: 'right', format: 'currency', width: 120 },
   { key: 'impressions',   label: 'Impr.',       align: 'right', format: 'compact' },
   { key: 'reach',         label: 'Reach',       align: 'right', format: 'compact' },
   { key: 'video_views',   label: 'Video Views', align: 'right', format: 'compact' },
@@ -15,19 +15,24 @@ const COLUMNS = [
   { key: 'cpm',           label: 'CPM',         align: 'right', format: 'currency' },
   { key: 'cpc',           label: 'CPC',         align: 'right', format: 'currency' },
   { key: 'cplv',          label: 'CPLV',        align: 'right', format: 'currency', title: 'Cost per landing page view (traffic campaigns only)' },
-  { key: 'thruplay',      label: 'ThruPlay',    align: 'right', format: 'compact',  title: 'ThruPlays (Meta views campaigns only)' },
+  { key: 'views_short',   label: 'Short Views', labels: { meta: '3s Views', tiktok: '6s Views' }, align: 'right', format: 'compact', width: 86, vtr: true,
+    title: 'Views campaigns only. Meta: 3-second video views. TikTok: 6-second video views. Small label: view-through rate = views / impressions' },
+  { key: 'views_15s',     label: '15s Views',   labels: { meta: 'ThruPlay', tiktok: '15s Focused' }, align: 'right', format: 'compact', width: 86, vtr: true,
+    title: 'Views campaigns only. Meta: ThruPlays (15s or complete). TikTok: 15-second focused views. Small label: view-through rate = views / impressions' },
   { key: 'cptp',          label: 'CPTP',        align: 'right', format: 'currency', title: 'Cost per ThruPlay = spend / ThruPlays (Meta views campaigns only)' },
 ];
-const METRIC_COL_WIDTH = 86;
-const CAMPAIGN_COL_MIN = 160;
-const colWidth = col => col.width ?? METRIC_COL_WIDTH;
+// Cost columns need room for a currency code; counts and rates are short
+const METRIC_COL_WIDTH = 74;
+const CURRENCY_COL_WIDTH = 86;
+const CAMPAIGN_COL_MIN = 140;
+const colWidth = col => col.width ?? (col.format === 'currency' ? CURRENCY_COL_WIDTH : METRIC_COL_WIDTH);
 const minWidthOf = cols => CAMPAIGN_COL_MIN + cols.filter(c => !c.grow).reduce((s, c) => s + colWidth(c), 0);
 
 // Commerce Lens: sales outcome first. Same widths as Brand so tables still line up.
 const COMMERCE_COLUMNS = [
   { key: 'campaign_name', label: 'Campaign', align: 'left',  grow: true, format: null },
-  { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 126, title: 'Small label: daily average spend vs the previous month' },
-  { key: 'revenue',       label: 'Revenue',  align: 'right', format: 'currency', width: 126 },
+  { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 120, title: 'Small label: daily average spend vs the previous month' },
+  { key: 'revenue',       label: 'Revenue',  align: 'right', format: 'currency', width: 120, title: 'Small label: daily average revenue vs the previous month' },
   { key: 'roas',          label: 'ROAS',     align: 'right', format: 'roas',     width: 98, title: 'Return on ad spend = revenue / spend. Small label: change vs the previous month' },
   { key: 'orders',        label: 'Orders',   align: 'right', format: 'number', title: 'Small label: daily average orders vs the previous month' },
   { key: 'cpa',           label: 'CPA',      align: 'right', format: 'currency', title: 'Cost per acquisition = spend / orders' },
@@ -56,28 +61,53 @@ const cplvOf = (spend, lpv) => {
 // Views campaigns are named ..._Views_... (e.g. PH_Meta_OATSIDE_Awareness_CPV_Views_2026_Kids-Phase1)
 export const isViewsCampaign = name => /_views(_|$)/i.test(name || '');
 
-// ThruPlay / CPTP: Meta views campaigns only (ThruPlay is a Meta metric)
-const thruplayOf = (row, platform) =>
-  platform === 'meta' && isViewsCampaign(row.campaign_name) ? (parseFloat(row.video_thruplay_watched_actions) || null) : null;
+// Views campaigns only:
+//   short views  Meta 3-second video views | TikTok 6-second video views
+//   15s views    Meta ThruPlays            | TikTok 15-second focused views
+//   VTR          views / impressions (calculated, never summed or averaged)
+//   CPTP         Meta only: spend / ThruPlays
+const VIEW_FIELDS = {
+  meta:   { views_short: 'video_views',      views_15s: 'video_thruplay_watched_actions' },
+  tiktok: { views_short: 'video_watched_6s', views_15s: 'engaged_view_15s' },
+};
+const viewsOf = (row, key, platform) => {
+  const field = VIEW_FIELDS[platform]?.[key];
+  return field && isViewsCampaign(row.campaign_name) ? (parseFloat(row[field]) || null) : null;
+};
+const vtrOf = (views, impressions) => (views != null && parseFloat(impressions) > 0 ? (views / parseFloat(impressions)) * 100 : null);
 
 // TikTok reports video views as video_play_actions; CPLV only for traffic campaigns
 function cellValue(row, key, platform) {
   if (key === 'video_views') return row.video_views ?? row.video_play_actions;
   if (key === 'cplv') return isTrafficCampaign(row.campaign_name) ? cplvOf(row.spend, row.landing_page_views) : null;
-  if (key === 'thruplay') return thruplayOf(row, platform);
-  if (key === 'cptp') { const tp = thruplayOf(row, platform); return tp ? (parseFloat(row.spend) || 0) / tp : null; }
+  if (key === 'views_short' || key === 'views_15s') return viewsOf(row, key, platform);
+  if (key === 'cptp') { const tp = platform === 'meta' ? viewsOf(row, 'views_15s', platform) : null; return tp ? (parseFloat(row.spend) || 0) / tp : null; }
   return row[key];
 }
 
-// Platform-level ThruPlays / CPTP across its views campaigns only
-function viewsThruplay(campaigns, platform) {
-  if (platform !== 'meta') return { thruplay: null, cptp: null };
+// Platform-level views totals across its views campaigns only; VTRs use the
+// impressions of those same campaigns
+function viewsTotals(campaigns, platform) {
+  const none = { views_short: null, views_15s: null, vtr_short: null, vtr_15s: null, cptp: null };
+  if (!VIEW_FIELDS[platform]) return none;
   const views = campaigns.filter(c => isViewsCampaign(c.campaign_name));
-  if (!views.length) return { thruplay: null, cptp: null };
-  const tp = views.reduce((a, c) => a + (parseFloat(c.video_thruplay_watched_actions) || 0), 0);
-  const sp = views.reduce((a, c) => a + (parseFloat(c.spend) || 0), 0);
-  return { thruplay: tp || null, cptp: tp > 0 ? sp / tp : null };
+  if (!views.length) return none;
+  const sum = f => views.reduce((a, c) => a + (parseFloat(c[f]) || 0), 0);
+  const short = sum(VIEW_FIELDS[platform].views_short), long = sum(VIEW_FIELDS[platform].views_15s);
+  const imp = sum('impressions'), sp = sum('spend');
+  return {
+    views_short: short || null, views_15s: long || null,
+    vtr_short: short ? vtrOf(short, imp) : null, vtr_15s: long ? vtrOf(long, imp) : null,
+    cptp: platform === 'meta' && long > 0 ? sp / long : null,
+  };
 }
+
+// Small grey "VTR 4.2%" under a views value
+const VtrNote = ({ vtr, theme }) => (vtr == null ? null : (
+  <span title="View-through rate = views / impressions" style={{ display: 'block', fontSize: 10.5, fontWeight: 600, color: theme.textMuted, lineHeight: 1.3, whiteSpace: 'nowrap' }}>
+    VTR {vtr.toFixed(vtr < 10 ? 2 : 1)}%
+  </span>
+));
 
 // Platform-level CPLV across its traffic campaigns only
 function trafficCplv(campaigns) {
@@ -100,6 +130,8 @@ const PLATFORM_CONFIG = {
       { key: 'ctr',                label: 'CTR',          format: 'percent' },
       { key: 'cpm',                label: 'CPM',          format: 'currency' },
       { key: 'cplv',               label: 'CPLV · Traffic', format: 'currency', optional: true },
+      { key: 'views_short',        label: '6s Views · Views', format: 'compact', optional: true },
+      { key: 'views_15s',          label: '15s Focused · Views', format: 'compact', optional: true },
     ],
   },
   meta: {
@@ -114,7 +146,8 @@ const PLATFORM_CONFIG = {
       { key: 'ctr',         label: 'CTR',         format: 'percent' },
       { key: 'cpm',         label: 'CPM',         format: 'currency' },
       { key: 'cplv',        label: 'CPLV · Traffic', format: 'currency', optional: true },
-      { key: 'thruplay',    label: 'ThruPlay · Views', format: 'compact', optional: true },
+      { key: 'views_short', label: '3s Views · Views', format: 'compact', optional: true },
+      { key: 'views_15s',   label: 'ThruPlay · Views', format: 'compact', optional: true },
       { key: 'cptp',        label: 'CPTP · Views',  format: 'currency', optional: true },
     ],
   },
@@ -159,7 +192,7 @@ export function VsPrevious({ current, previous, label, tip, theme }) {
   );
 }
 
-const PREV_KEYS = ['roas', 'spend', 'orders'];
+const PREV_KEYS = ['roas', 'spend', 'revenue', 'orders'];
 const perDay = v => `${v}/day`;
 
 // Callout for one cell: current value (this period's total or ratio) vs the
@@ -173,12 +206,12 @@ function prevNote(key, current, prevPack, prev, currency, theme) {
   }
   if (!prev.periodDays || !prev.prevDays) return null;
   const nowDaily = Number(current) / prev.periodDays;
-  if (key === 'spend') {
-    const prevTotal = prev.toLocal(prevPack.spendSgd, currency);
+  if (key === 'spend' || key === 'revenue') {
+    const prevTotal = prev.toLocal(key === 'spend' ? prevPack.spendSgd : prevPack.revenueSgd, currency);
     if (prevTotal == null) return null;
     const prevDaily = prevTotal / prev.prevDays;
     return <VsPrevious current={nowDaily} previous={prevDaily} label={L} theme={theme}
-      tip={`Daily average spend: ${perDay(fmt(nowDaily, 'currency', currency))} this period (${prev.periodDays} days) vs ${perDay(fmt(prevDaily, 'currency', currency))} in ${L} (${fmt(prevTotal, 'currency', currency)} over ${prev.prevDays} days)`} />;
+      tip={`Daily average ${key}: ${perDay(fmt(nowDaily, 'currency', currency))} this period (${prev.periodDays} days) vs ${perDay(fmt(prevDaily, 'currency', currency))} in ${L} (${fmt(prevTotal, 'currency', currency)} over ${prev.prevDays} days)`} />;
   }
   if (key === 'orders') {
     const prevDaily = (prevPack.orders || 0) / prev.prevDays;
@@ -227,7 +260,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   if (!config) return null;
 
   const { campaigns = [], total = {}, currency = 'SGD' } = data || {};
-  const kpiTotal = { ...total, cplv: trafficCplv(campaigns), ...viewsThruplay(campaigns, platform) };
+  const kpiTotal = { ...total, cplv: trafficCplv(campaigns), ...viewsTotals(campaigns, platform) };
   const totalPrevKeys = prevTotalsRoasOnly ? ['roas'] : PREV_KEYS;
 
   const sorted = [...campaigns].sort((a, b) => {
@@ -290,7 +323,9 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
             total={kpiTotal}
             theme={theme}
             currency={currency}
-            notes={prev ? Object.fromEntries(totalPrevKeys.map(k => [k, prevNote(k, kpiTotal[k], prev.total, prev, currency, theme)])) : null}
+            notes={prev
+              ? Object.fromEntries(totalPrevKeys.map(k => [k, prevNote(k, kpiTotal[k], prev.total, prev, currency, theme)]))
+              : { views_short: <VtrNote vtr={kpiTotal.vtr_short} theme={theme} />, views_15s: <VtrNote vtr={kpiTotal.vtr_15s} theme={theme} /> }}
           />
 
           <div style={{ overflowX: 'auto' }}>
@@ -315,12 +350,12 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                         color: sortKey === col.key ? theme.accent : theme.textMuted,
                         fontFamily: "'Space Grotesk', sans-serif",
                         cursor: 'pointer',
-                        whiteSpace: 'nowrap',
+                        verticalAlign: 'bottom',
                         borderBottom: `1px solid ${theme.border}`,
                         userSelect: 'none',
                       }}
                     >
-                      {col.label}
+                      {col.labels?.[platform] ?? col.label}
                       {sortKey === col.key && (
                         <span style={{ marginLeft: 4, opacity: 0.7 }}>
                           {sortDir === 'asc' ? '↑' : '↓'}
@@ -392,6 +427,11 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                   )}
                                   <span style={{ minWidth: 0 }}><BreakableName name={val} /></span>
                                 </div>
+                              ) : col.vtr && val != null ? (
+                                <>
+                                  {display}
+                                  <VtrNote vtr={vtrOf(val, row.impressions)} theme={theme} />
+                                </>
                               ) : prev && PREV_KEYS.includes(col.key) ? (
                                 <>
                                   {display}

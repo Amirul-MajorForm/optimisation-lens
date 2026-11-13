@@ -16,9 +16,9 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 // Previous calendar month (from the monthly data, SGD) for one source:
 // 'cpas' | 'tiktok' | 'meta' | 'google'. The month is the one before the
 // selected range starts (Last 7 days in Nov -> Oct; Last month = Oct -> Sep).
-// ROAS compares directly. Spend and orders are totals, so they compare as a
+// ROAS compares directly. Spend, revenue and orders are totals, so they compare as a
 // daily average: this period's total / its days vs last month's / its days.
-// Spend is converted from SGD back to the table's currency.
+// Spend and revenue are converted from SGD back to the table's currency.
 const daysBetween = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000) + 1;
 
 function makePrev(monthlyData, market, rangeStart, rangeEnd, source) {
@@ -29,7 +29,7 @@ function makePrev(monthlyData, market, rangeStart, rangeEnd, source) {
   const prevDays = new Date(Date.UTC(py, pm, 0)).getUTCDate();
   const periodDays = rangeEnd ? daysBetween(rangeStart, rangeEnd) : null;
   const fx = monthlyData.fx || {};
-  const pack = x => (x ? { roas: x.spend > 0 && x.revenue > 0 ? x.revenue / x.spend : null, spendSgd: x.spend, orders: x.orders } : null);
+  const pack = x => (x ? { roas: x.spend > 0 && x.revenue > 0 ? x.revenue / x.spend : null, spendSgd: x.spend, revenueSgd: x.revenue, orders: x.orders } : null);
   const byCampaign = monthlyData.campaignMonths?.[market]?.[source] || {};
   const month = (monthlyData.markets?.[market] || []).find(x => x.month === key);
   return {

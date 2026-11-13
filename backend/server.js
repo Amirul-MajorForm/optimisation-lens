@@ -168,8 +168,9 @@ async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
 //   Meta CPAS:      collaborative-ads purchases / purchase value (CPAS_METRICS)
 const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views', 'fads_website_fb_landing_page_views',
                         'fads_all_purchases', 'fads_purchase_conversions_all', 'fads_video_thruplay_watched_actions'];
+// Views campaigns: Meta 3s views (video_views) + ThruPlays; TikTok 6s views + 15s focused views
 const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach', 'ttads_total_landing_page_view',
-                        'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'];
+                        'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue', 'ttads_video_watched_6s', 'ttads_engaged_view_15s'];
 const GOOGLE_METRICS = ['amount_spent', 'impressions', 'clicks', 'conversions', 'gadw_metrics_conversions_value'];
 const CPAS_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views',
                         'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'];
