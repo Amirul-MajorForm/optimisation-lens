@@ -26,6 +26,9 @@ export const fetchDrill = (params, { platform, lens, campaign, adset, scope }, s
 // Campaign status (ended / paused / removed) per platform, for greying out rows
 export const fetchStatus = (params, signal) => getJSON('/api/status', params, signal);
 
+// Search Lens: Google keywords / search terms + Amazon search terms (all markets)
+export const fetchSearch = (params, signal) => getJSON('/api/search', params, signal);
+
 // Campaign trend chart: daily data for one campaign, requested only when opened
 export const fetchTrend = (params, { campaign, platform, lens, lpv = false, rev = false }, signal) =>
   getJSON('/api/trend', params, signal, { campaign, platform, lens, ...(lpv ? { lpv: '1' } : {}), ...(rev ? { rev: '1' } : {}) });

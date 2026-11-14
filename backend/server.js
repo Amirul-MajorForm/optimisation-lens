@@ -82,9 +82,14 @@ const isoDay = t => new Date(t).toISOString().slice(0, 10);
 // which is re-weighted by video plays (never summed).
 const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name', 'adset_name', 'adgroup_name', 'ad_group_name',
   'gadw_ad_group_ad_ad_id', 'ad_group_ad_ad_id', 'gadw_ad_group_ad_ad_name', 'ad_group_ad_ad_name', 'gadw_ad_group_ad_ad_type', 'ad_group_ad_ad_type',
-  'amazonads_targeting_expression'];
+  'amazonads_targeting_expression',
+  // Search Lens
+  'gadw_search_term_view_search_term', 'gadw_segments_keyword_info_text', 'gadw_segments_keyword_info_match_type',
+  'gadw_ad_group_criterion_keyword_text', 'gadw_ad_group_criterion_match_type', 'gadw_ad_group_criterion_quality_info_quality_score',
+  'amazonads_search_term'];
 const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
-const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions' };
+const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions',
+  gadw_metrics_search_impression_share: 'impressions' };
 function mergeRows(...results) {
   const byName = new Map();
   for (const r of results.flatMap(x => x?.data || [])) {
@@ -511,6 +516,67 @@ app.get('/api/status', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[status error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Search Lens: Google keywords + search terms and Amazon search terms for the
+// selected range, all markets in one cached response (market split by
+// campaign name, so switching market is instant). 3 requests.
+//   Google keywords:     keyword, match type, quality score, impression share
+//   Google search terms: search term + the keyword / match type it matched
+//   Amazon search terms: search term + targeting group (auto campaigns have
+//                        no keywords)
+const SEARCH_TTL = 30 * 60 * 1000;
+const titleCase = s => String(s || '').toLowerCase().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+app.get('/api/search', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const range = resolveDateRange(req.query);
+    const result = await cached(`search_${range.startDate}_${range.endDate}`, async () => {
+      const base = ['amount_spent', 'impressions', 'clicks'];
+      const opts = { priority: PRIORITY.user };
+      const notes = [];
+      const run = (label, ...args) => withTimeout(makeQuery(...args), 90000, label)
+        .catch(err => { notes.push(`${label}: ${err.message}`); console.error('[search]', label, err.message); return null; });
+      const [kwRaw, gstRaw, astRaw] = await Promise.all([
+        run('Google keywords', ALL_ACCOUNTS.google, [...base, 'conversions', 'gadw_metrics_conversions_value', 'gadw_metrics_search_impression_share'], range,
+          { ...opts, dimensions: ['campaign_name', 'gadw_ad_group_criterion_keyword_text', 'gadw_ad_group_criterion_match_type', 'gadw_ad_group_criterion_quality_info_quality_score'] }),
+        run('Google search terms', ALL_ACCOUNTS.google, [...base, 'conversions', 'gadw_metrics_conversions_value'], range,
+          { ...opts, dimensions: ['campaign_name', 'gadw_search_term_view_search_term', 'gadw_segments_keyword_info_text', 'gadw_segments_keyword_info_match_type'] }),
+        run('Amazon search terms', AMAZON_ACCOUNTS, [...base, 'amazonads_cost', 'amazonads_total_purchases', 'amazonads_total_sales'], range,
+          { ...opts, split: false, dimensions: ['campaign_name', 'amazonads_search_term', 'amazonads_targeting_expression'] }),
+      ]);
+      const num = v => parseFloat(v) || 0;
+      const keep = r => r.spend > 0 || r.clicks > 0 || r.orders > 0;
+      const googleKeywords = (kwRaw?.data || []).map(row => {
+        const r = normalizeRow(row);
+        const is = parseFloat(r.metrics_search_impression_share);
+        return { market: detectMarket(r.campaign_name), campaign: r.campaign_name, text: r.ad_group_criterion_keyword_text || '',
+          matchType: titleCase(r.ad_group_criterion_match_type), qualityScore: parseFloat(r.ad_group_criterion_quality_info_quality_score) || null,
+          impressionShare: Number.isFinite(is) ? is : null,
+          spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), orders: r.orders || 0, revenue: r.revenue || 0 };
+      }).filter(r => r.text && keep(r));
+      const googleTerms = (gstRaw?.data || []).map(row => {
+        const r = normalizeRow(row);
+        return { market: detectMarket(r.campaign_name), campaign: r.campaign_name, text: r.search_term_view_search_term || '',
+          keyword: r.segments_keyword_info_text || '', matchType: titleCase(r.segments_keyword_info_match_type),
+          spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), orders: r.orders || 0, revenue: r.revenue || 0 };
+      }).filter(r => r.text && keep(r));
+      const amazonTerms = (astRaw?.data || []).map(row => {
+        const r = normalizeRow(row);
+        const t = String(r.targeting_expression || '').toLowerCase();
+        return { market: detectMarket(r.campaign_name), campaign: r.campaign_name, text: r.search_term || '',
+          targeting: AMAZON_TARGETING[t] || r.targeting_expression || '',
+          spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), orders: r.orders || 0, revenue: r.revenue || 0 };
+      }).filter(r => r.text && keep(r));
+      const currency = Object.fromEntries(Object.entries(MARKETS).map(([m, c]) => [m, { google: c.currency.google, amazon: c.currency.amazon || 'SGD' }]));
+      return { dateRange: range, currency, google: { keywords: googleKeywords, searchTerms: googleTerms }, amazon: { searchTerms: amazonTerms }, notes };
+    }, SEARCH_TTL);
+    res.json(result);
+  } catch (err) {
+    console.error('[search error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

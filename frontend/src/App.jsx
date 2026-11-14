@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable, { DrillContext, GoalModelContext, StatusContext } from './components/CampaignTable.jsx';
@@ -9,6 +9,7 @@ import GoalTracker from './components/GoalTracker.jsx';
 import TrendPanel from './components/TrendPanel.jsx';
 import SalesLens from './components/SalesLens.jsx';
 import TopAdsPanel from './components/TopAdsPanel.jsx';
+import SearchLens from './components/SearchLens.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import { useIsMobile } from './useViewport.js';
 
@@ -220,7 +221,7 @@ export default function App() {
   const topAdsLens = activeTab === 'commerce' ? 'commerce' : 'brand';
   const topAdsKey = `${topAdsLens}|${market}|${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
   useEffect(() => {
-    if (!topAdsOpen || activeTab === 'sales' || topAds[topAdsKey]) return;
+    if (!topAdsOpen || activeTab === 'sales' || activeTab === 'search' || topAds[topAdsKey]) return;
     const key = topAdsKey;
     setTopAds(t => ({ ...t, [key]: { loading: true } }));
     fetchTopAds(fetchParams, { market, lens: topAdsLens })
@@ -231,6 +232,19 @@ export default function App() {
   // Goal sheet model per campaign (current market), for the table highlight
   const goalList = goals?.data?.markets?.[market];
   const goalModels = useMemo(() => new Map((goalList || []).map(g => [String(g.campaign).trim().toLowerCase(), String(g.model).toUpperCase()])), [goalList]);
+
+  // Search Lens: all markets for the selected range, loaded when the tab opens
+  const [searchByRange, setSearchByRange] = useState({});
+  const searchKey = `${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
+  const loadSearch = useCallback((force = false) => {
+    setSearchByRange(s => (!force && s[searchKey] ? s : { ...s, [searchKey]: { loading: true } }));
+    fetchSearch(fetchParams)
+      .then(d => setSearchByRange(s => ({ ...s, [searchKey]: { data: d } })))
+      .catch(e => setSearchByRange(s => ({ ...s, [searchKey]: { error: e.message } })));
+  }, [searchKey]);
+  useEffect(() => {
+    if (activeTab === 'search' && !searchByRange[searchKey]) loadSearch();
+  }, [activeTab, searchKey, searchByRange, loadSearch]);
 
   // Campaign status (ended / paused) for the selected range: loaded in the
   // background once the tables have data, cached per range
@@ -256,6 +270,7 @@ export default function App() {
     load();
     if (activeTab === 'brand') loadGoals();
     if (activeTab === 'commerce') loadCommerce();
+    if (activeTab === 'search') loadSearch(true);
   };
 
   return (
@@ -304,6 +319,13 @@ export default function App() {
         );
         // Commerce Lens always offers Indonesia (Meta CPAS) and Japan (Amazon)
         if (activeTab === 'commerce') { activeMarkets.add('id'); activeMarkets.add('jp'); }
+        // Search Lens: markets with Google Search or Amazon search data
+        if (activeTab === 'search') {
+          activeMarkets.clear();
+          const sd = searchByRange[searchKey]?.data;
+          for (const r of [...(sd?.google.searchTerms || []), ...(sd?.google.keywords || []), ...(sd?.amazon.searchTerms || [])]) activeMarkets.add(r.market);
+          activeMarkets.add('jp');
+        }
         const isCommerce = activeTab === 'commerce';
         const shownError = isCommerce ? (commerceError || error) : error;
         return (
@@ -325,8 +347,8 @@ export default function App() {
               dateLabel={dateLabel}
               onRefresh={handleRefresh}
               refreshing={isCommerce ? (loading || commerceLoading) : loading}
-              onTopAds={activeTab === 'sales' ? null : () => setTopAdsOpen(o => !o)}
-              topAdsOpen={topAdsOpen && activeTab !== 'sales'}
+              onTopAds={activeTab === 'sales' || activeTab === 'search' ? null : () => setTopAdsOpen(o => !o)}
+              topAdsOpen={topAdsOpen && activeTab !== 'sales' && activeTab !== 'search'}
               mobile={mobile}
               onMenu={() => setNavOpen(true)}
             />
@@ -364,6 +386,10 @@ export default function App() {
                 </>
               )}
 
+              {activeTab === 'search' && (
+                <SearchLens state={searchByRange[searchKey]} market={market} marketName={marketName} theme={theme} darkMode={darkMode} />
+              )}
+
               {activeTab === 'sales' && (
                 <SalesLens state={salesByMarket[market]} theme={theme} darkMode={darkMode} marketName={marketName} />
               )}
@@ -395,7 +421,7 @@ export default function App() {
             </GoalModelContext.Provider>
             </DrillContext.Provider>
 
-            {topAdsOpen && activeTab !== 'sales' && (
+            {topAdsOpen && activeTab !== 'sales' && activeTab !== 'search' && (
               <TopAdsPanel
                 state={topAds[topAdsKey]}
                 lens={topAdsLens}
