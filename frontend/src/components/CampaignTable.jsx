@@ -124,7 +124,7 @@ const WatchNote = ({ sec, platform, theme }) => (sec == null ? null : (
 // ads must qualify.
 const HIGHER_IS_BETTER = new Set(['ctr', 'roas']);
 const GOAL_LABEL = { views_short: 'cost per 6s view', views_15s: 'cost per ThruPlay', cplv: 'CPLV', cpm: 'CPM', cpc: 'CPC', cpa: 'CPA', ctr: 'CTR', roas: 'ROAS' };
-function adBadges(ads, campaignRow, platform, goalModels, variant, currency) {
+function adBadges(ads, campaignRow, platform, goalModels, variant, currency, { noun = 'ads', where = 'in this ad set' } = {}) {
   const out = new Map();
   const goal = goalCellOf(campaignRow, platform, goalModels, variant);
   if (!goal) return out;
@@ -147,8 +147,53 @@ function adBadges(ads, campaignRow, platform, goalModels, variant, currency) {
   const show = v => (goal.key === 'ctr' ? `${v.toFixed(2)}%` : goal.key === 'roas' ? `${v.toFixed(2)}x`
     : v < 1 ? `${currency} ${v.toFixed(4)}` : fmt(v, 'currency', currency));
   const what = GOAL_LABEL[goal.key] || goal.key;
-  out.set(best.a, { kind: 'winner', tip: `Best ${what} of ${pool.length} ads in this ad set (${show(best.v)})` });
-  out.set(worst.a, { kind: 'loser', tip: `Weakest ${what} of ${pool.length} ads in this ad set (${show(worst.v)})` });
+  out.set(best.a, { kind: 'winner', tip: `Best ${what} of ${pool.length} ${noun} ${where} (${show(best.v)})` });
+  out.set(worst.a, { kind: 'loser', tip: `Weakest ${what} of ${pool.length} ${noun} ${where} (${show(worst.v)})` });
+  return out;
+}
+
+// Ad grouping (Type / Language) from the naming convention
+//   Type_MMYY_Length_Audience_Concept_Language   e.g. Video_1026_20s_Prospecting_The-Dress_BM
+// Type = first part (Video, GIF, Static, Carousel); Google ads without a name
+// use their ad type. Language = the last language code among the parts
+// separated by "_" or spaces (GIF_Offer_NA_10.10 BM_RTG -> BM).
+const TYPE_ALIASES = { video: 'Video', vdo: 'Video', gif: 'GIF', static: 'Static', image: 'Static', img: 'Static', carousel: 'Carousel', collection: 'Collection' };
+const LANGS = new Set(['EN', 'BM', 'MS', 'VN', 'VI', 'ZH', 'CN', 'TH', 'ID', 'BI', 'TL', 'JP', 'JA', 'KR', 'KO', 'TW']);
+export function adTypeOf(row) {
+  const first = String(row?.name || '').split(/[_\s]/)[0].toLowerCase();
+  if (TYPE_ALIASES[first]) return TYPE_ALIASES[first];
+  const g = String(row?.ad_group_ad_ad_type || '').toUpperCase();
+  if (g.includes('VIDEO')) return 'Video';
+  if (g.includes('SEARCH')) return 'Search';
+  if (g.includes('DISPLAY') || g.includes('IMAGE')) return 'Display';
+  return 'Other';
+}
+export function adLangOf(row) {
+  const parts = String(row?.name || '').split(/[_\s]+/).map(t => t.toUpperCase());
+  for (let i = parts.length - 1; i >= 0; i--) if (LANGS.has(parts[i])) return parts[i];
+  return 'Not tagged';
+}
+const GROUPERS = { type: adTypeOf, lang: adLangOf };
+const GROUP_LABEL = { adset: 'Ad set', type: 'Type', lang: 'Language' };
+
+// Totals for a set of rows (ads in a group, or one ad across several ad
+// sets): counts are summed, rates recalculated, reach left out (not additive),
+// average watch time re-weighted by plays
+const SUMMED = ['spend', 'impressions', 'clicks', 'video_views', 'video_play_actions', 'landing_page_views', 'video_watched_6s',
+  'engaged_view_15s', 'video_thruplay_watched_actions', 'orders', 'revenue', 'watch_time_total', 'watch_plays'];
+function combineRows(rows, extra) {
+  const out = { campaign_name: rows[0]?.campaign_name, ...extra };
+  for (const k of SUMMED) {
+    if (!rows.some(r => r[k] != null && r[k] !== '')) continue;
+    out[k] = rows.reduce((t, r) => t + (parseFloat(r[k]) || 0), 0);
+  }
+  const sp = out.spend || 0, imp = out.impressions || 0, cl = out.clicks || 0;
+  out.ctr = imp > 0 ? (cl / imp) * 100 : null;
+  out.cpm = imp > 0 ? (sp / imp) * 1000 : null;
+  out.cpc = cl > 0 ? sp / cl : null;
+  out.roas = sp > 0 && out.revenue > 0 ? out.revenue / sp : null;
+  out.cpa = out.orders > 0 && sp > 0 ? sp / out.orders : null;
+  out.avg_watch_time = out.watch_plays > 0 ? out.watch_time_total / out.watch_plays : null;
   return out;
 }
 
@@ -363,15 +408,31 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   const [drillData, setDrillData] = useState({}); // key -> { loading | rows | error }
   useEffect(() => { setOpenRows({}); setDrillData({}); }, [drill?.rangeKey]);
 
-  const toggleRow = (key, args) => {
-    const opening = !openRows[key];
-    setOpenRows(o => ({ ...o, [key]: opening }));
-    if (!opening || !drill || (drillData[key] && !drillData[key].error)) return;
+  // How an opened campaign breaks down: its ad sets (then ads), or all its ads
+  // grouped by type / language (then the ads in each group)
+  const [groupBy, setGroupBy] = useState('adset');
+  const ensureData = (key, args) => {
+    if (!drill || (drillData[key] && !drillData[key].error)) return;
     setDrillData(d => ({ ...d, [key]: { loading: true } }));
     drill.fetch({ platform, lens, ...args })
       .then(r => setDrillData(d => ({ ...d, [key]: { rows: r.rows || [] } })))
       .catch(e => setDrillData(d => ({ ...d, [key]: { error: e.message } })));
   };
+  const campaignDataKey = name => (groupBy === 'adset' ? `c|${name}` : `ca|${name}`);
+  const campaignArgs = name => (groupBy === 'adset' ? { campaign: name } : { campaign: name, scope: 'campaign' });
+  const toggleRow = (key, dataKey, args) => {
+    const opening = !openRows[key];
+    setOpenRows(o => ({ ...o, [key]: opening }));
+    if (opening && dataKey) ensureData(dataKey, args);
+  };
+  // Switching the grouping keeps open campaigns open and loads what they need
+  useEffect(() => {
+    for (const [k, open] of Object.entries(openRows)) {
+      if (!open || !k.startsWith('c|')) continue;
+      const name = k.slice(2);
+      ensureData(campaignDataKey(name), campaignArgs(name));
+    }
+  }, [groupBy]);
 
   const config = PLATFORM_CONFIG[platform];
   const columns = variant === 'commerce' ? COMMERCE_COLUMNS : COLUMNS;
@@ -404,19 +465,47 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
     const cKey = `c|${row.campaign_name}`;
     // TikTok GMV Max campaigns report only campaign-level totals (no ad groups)
     const gmvMax = platform === 'tiktok' && parseFloat(row.gmv_cost) > 0;
-    flatRows.push({ row, depth: 0, key: cKey, canOpen: !!drill && !gmvMax && platform !== 'amazon', toggle: () => toggleRow(cKey, { campaign: row.campaign_name }) });
+    const cData = campaignDataKey(row.campaign_name);
+    flatRows.push({ row, depth: 0, key: cKey, canOpen: !!drill && !gmvMax && platform !== 'amazon',
+      toggle: () => toggleRow(cKey, cData, campaignArgs(row.campaign_name)) });
     if (!openRows[cKey]) continue;
-    const cd = drillData[cKey];
+    const cd = drillData[cData];
+    const childName = groupBy === 'adset' ? many : 'ads';
     if (!cd || cd.loading || cd.error || !cd.rows.length) {
-      flatRows.push({ status: cd?.error ? `Could not load ${many}: ${cd.error}` : cd?.rows ? `No ${many} with spend in this period` : `Loading ${many}…`, depth: 1, key: `${cKey}|status` });
+      flatRows.push({ status: cd?.error ? `Could not load ${childName}: ${cd.error}` : cd?.rows ? `No ${childName} with spend in this period` : `Loading ${childName}…`, depth: 1, key: `${cKey}|status` });
+      continue;
+    }
+    if (groupBy !== 'adset') {
+      // All the campaign's ads, grouped; the same ad in several ad sets is one row
+      const byGroup = new Map();
+      for (const a of cd.rows) {
+        const g = GROUPERS[groupBy](a);
+        if (!byGroup.has(g)) byGroup.set(g, new Map());
+        const ads = byGroup.get(g);
+        ads.set(a.name, [...(ads.get(a.name) || []), a]);
+      }
+      const groups = [...byGroup.entries()].map(([g, ads]) => {
+        const adRows = [...ads.entries()].map(([name, parts]) => (parts.length === 1 ? parts[0]
+          : combineRows(parts, { name, adset: `${parts.length} ${many}` })));
+        return combineRows(adRows, { name: `${g} (${adRows.length} ad${adRows.length === 1 ? '' : 's'})`, group: g, ads: adRows });
+      });
+      const groupBadges = adBadges(groups, row, platform, goalModels, variant, currency, { noun: `${GROUP_LABEL[groupBy].toLowerCase()} groups`, where: 'in this campaign' });
+      for (const grp of groups.sort(byCurrentSort)) {
+        const gKey = `g|${row.campaign_name}|${groupBy}|${grp.group}`;
+        flatRows.push({ row: grp, depth: 1, key: gKey, level: GROUP_LABEL[groupBy].toLowerCase(), canOpen: true, badge: groupBadges.get(grp),
+          toggle: () => toggleRow(gKey) });
+        if (!openRows[gKey]) continue;
+        const badges = adBadges(grp.ads, row, platform, goalModels, variant, currency, { where: `in ${grp.group}` });
+        for (const a of [...grp.ads].sort(byCurrentSort)) flatRows.push({ row: a, depth: 2, key: `${gKey}|${a.name}`, level: 'ad', badge: badges.get(a) });
+      }
       continue;
     }
     for (const as of [...cd.rows].sort(byCurrentSort)) {
       const aKey = `a|${row.campaign_name}|${as.adset}`;
-      const adLevel = platform !== 'google';
-      flatRows.push({ row: as, depth: 1, key: aKey, level: one, canOpen: adLevel,
-        toggle: () => toggleRow(aKey, { campaign: row.campaign_name, adset: as.adset }) });
-      if (!adLevel || !openRows[aKey]) continue;
+      const aArgs = { campaign: row.campaign_name, adset: as.adset };
+      flatRows.push({ row: as, depth: 1, key: aKey, level: one, canOpen: true,
+        toggle: () => toggleRow(aKey, aKey, aArgs) });
+      if (!openRows[aKey]) continue;
       const ad = drillData[aKey];
       if (!ad || ad.loading || ad.error || !ad.rows.length) {
         flatRows.push({ status: ad?.error ? `Could not load ads: ${ad.error}` : ad?.rows ? 'No ads with spend in this period' : 'Loading ads…', depth: 2, key: `${aKey}|status` });
@@ -432,6 +521,15 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
     else { setSortKey(key); setSortDir(key === 'campaign_name' ? 'asc' : 'desc'); }
   };
+
+  const darkBadge = theme.bg === '#080d1a';
+  const badgeEl = badge => badge && (
+    <span data-badge={badge.kind} title={badge.tip} style={{
+      marginLeft: 6, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'help',
+      color: badge.kind === 'winner' ? (darkBadge ? '#34d399' : '#047857') : (darkBadge ? '#f87171' : '#b91c1c'),
+      background: badge.kind === 'winner' ? (darkBadge ? 'rgba(52,211,153,0.15)' : '#d1fae5') : (darkBadge ? 'rgba(248,113,113,0.15)' : '#fee2e2'),
+    }}>{badge.kind === 'winner' ? 'winner' : 'loser'}</span>
+  );
 
   // Name column width (desktop): longest name + its indent / buttons
   const nameExtras = r => (r.depth === 0 ? (onTrend ? 30 : 0) + (r.canOpen ? 16 : 0) : r.depth * 16 + 16) + (r.badge ? 58 : 0);
@@ -461,6 +559,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
           display: 'flex',
           alignItems: 'center',
           gap: 10,
+          flexWrap: 'wrap',
           padding: '14px 20px',
           cursor: 'pointer',
           borderBottom: expanded ? `1px solid ${theme.border}` : 'none',
@@ -478,6 +577,20 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
         <span style={{ fontSize: 13, color: theme.textMuted }}>
           {loading ? '…' : `${campaigns.length} campaign${campaigns.length !== 1 ? 's' : ''} · ${currency}`}
         </span>
+        {drill && platform !== 'amazon' && (
+          <span role="group" aria-label="Break campaigns down by" onClick={e => e.stopPropagation()}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: theme.textMuted }}>
+            Ads by
+            <span style={{ display: 'inline-flex', border: `1px solid ${theme.border}`, borderRadius: 7, overflow: 'hidden' }}>
+              {['adset', 'type', 'lang'].map(k => (
+                <button key={k} aria-pressed={groupBy === k} onClick={() => setGroupBy(k)} style={{
+                  border: 'none', padding: '3px 8px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                  background: groupBy === k ? theme.accentLight : theme.surface, color: groupBy === k ? theme.accent : theme.textSecondary,
+                }}>{k === 'adset' ? (one[0].toUpperCase() + one.slice(1)) : GROUP_LABEL[k]}</button>
+              ))}
+            </span>
+          </span>
+        )}
         {!loading && campaigns.some(c => goalCellOf(c, platform, goalModels, variant)) && (
           <span title="Each campaign's main goal metric (goal sheet, else the buying type in the campaign name) is highlighted"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, color: theme.textMuted, cursor: 'help' }}>
@@ -631,8 +744,8 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                     <button
                                       onClick={toggle}
                                       aria-expanded={!!openRows[rowKey]}
-                                      aria-label={`${openRows[rowKey] ? 'Hide' : 'Show'} ${depth === 0 ? many : 'ads'} for ${val}`}
-                                      title={`${openRows[rowKey] ? 'Hide' : 'Show'} ${depth === 0 ? many : 'ads'}`}
+                                      aria-label={`${openRows[rowKey] ? 'Hide' : 'Show'} ${depth === 0 ? (groupBy === 'adset' ? many : `ads by ${GROUP_LABEL[groupBy].toLowerCase()}`) : 'ads'} for ${val}`}
+                                      title={`${openRows[rowKey] ? 'Hide' : 'Show'} ${depth === 0 ? (groupBy === 'adset' ? many : `ads by ${GROUP_LABEL[groupBy].toLowerCase()}`) : 'ads'}`}
                                       style={{
                                         display: 'flex', alignItems: 'flex-start', gap: 4, minWidth: 0, padding: 0, border: 'none',
                                         background: 'none', cursor: 'pointer', textAlign: 'left', font: 'inherit', color: 'inherit',
@@ -642,18 +755,12 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                         style={{ flexShrink: 0, marginTop: 2, color: theme.textMuted, transition: 'transform 0.15s', transform: openRows[rowKey] ? 'rotate(90deg)' : 'none' }}>
                                         <path d="M9 6l6 6-6 6" />
                                       </svg>
-                                      <span style={{ minWidth: 0 }}>{mobile ? <BreakableName name={val} /> : val}</span>
+                                      <span style={{ minWidth: 0 }}>{mobile ? <BreakableName name={val} /> : val}{badgeEl(badge)}</span>
                                     </button>
                                   ) : (
                                     <span style={{ minWidth: 0, paddingLeft: depth ? 16 : 0 }}>
                                       {mobile ? <BreakableName name={val} /> : val}
-                                      {badge && (
-                                        <span data-badge={badge.kind} title={badge.tip} style={{
-                                          marginLeft: 6, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'help',
-                                          color: badge.kind === 'winner' ? (dark ? '#34d399' : '#047857') : (dark ? '#f87171' : '#b91c1c'),
-                                          background: badge.kind === 'winner' ? (dark ? 'rgba(52,211,153,0.15)' : '#d1fae5') : (dark ? 'rgba(248,113,113,0.15)' : '#fee2e2'),
-                                        }}>{badge.kind === 'winner' ? 'winner' : 'loser'}</span>
-                                      )}
+                                      {badgeEl(badge)}
                                     </span>
                                   )}
                                 </div>

@@ -70,7 +70,8 @@ const isoDay = t => new Date(t).toISOString().slice(0, 10);
 // metrics we request are additive except reach, which is slightly overstated
 // when a single campaign's date range had to be split, and average watch time,
 // which is re-weighted by video plays (never summed).
-const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name', 'adset_name', 'adgroup_name', 'ad_group_name'];
+const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name', 'adset_name', 'adgroup_name', 'ad_group_name',
+  'gadw_ad_group_ad_ad_id', 'ad_group_ad_ad_id', 'gadw_ad_group_ad_ad_name', 'ad_group_ad_ad_name', 'gadw_ad_group_ad_ad_type', 'ad_group_ad_ad_type'];
 const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
 const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions' };
 function mergeRows(...results) {
@@ -368,21 +369,31 @@ function campaignAccounts(platform, lens, campaign) {
   return { own, others: all.filter(a => !own.includes(a)) };
 }
 
+// Ad-level dimensions. Google ads have no "ad_name" common field: video ads
+// carry a name, search ads only an ID and type (shown as "Responsive search ad · <id>").
+const AD_DIMS = {
+  meta: ['ad_name'], tiktok: ['ad_name'],
+  google: ['gadw_ad_group_ad_ad_name', 'gadw_ad_group_ad_ad_id', 'gadw_ad_group_ad_ad_type'],
+};
+const GOOGLE_AD_TYPE = t => String(t || 'Ad').toLowerCase().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
+
+// ?adset=X -> that ad set's ads; ?scope=campaign -> every ad in the campaign
+// (for grouping ads by type / language); neither -> the campaign's ad sets.
 app.get('/api/drill', async (req, res) => {
   try {
     if (!requireKey(res)) return;
     const { platform, campaign, adset, lens = 'brand' } = req.query;
+    const allAds = req.query.scope === 'campaign';
     if (!ADSET_DIM[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
-    if (adset && platform === 'google') return res.status(400).json({ error: 'Google drill-down stops at ad groups' });
-    const level = adset ? 'ad' : 'adset';
+    const level = adset || allAds ? 'ad' : 'adset';
     const range = resolveDateRange(req.query);
     const metrics = lens === 'commerce' && platform === 'meta' ? CPAS_METRICS
       : { meta: META_METRICS, tiktok: TIKTOK_METRICS.filter(m => !GMV_FIELDS.includes(m)), google: GOOGLE_METRICS }[platform];
     const { own, others } = campaignAccounts(platform, lens, campaign);
 
-    const result = await cached(`drill_${lens}_${platform}_${level}_${campaign}_${adset || ''}_${range.startDate}_${range.endDate}`, async () => {
+    const result = await cached(`drill_${lens}_${platform}_${level}_${allAds ? 'all' : ''}_${campaign}_${adset || ''}_${range.startDate}_${range.endDate}`, async () => {
       const opts = {
-        dimensions: ['campaign_name', ADSET_DIM[platform], ...(level === 'ad' ? ['ad_name'] : [])],
+        dimensions: ['campaign_name', ADSET_DIM[platform], ...(level === 'ad' ? AD_DIMS[platform] : [])],
         filters: [
           { fieldId: 'campaign_name', operator: 'equals', value: campaign },
           ...(adset ? [{ fieldId: ADSET_DIM[platform], operator: 'equals', value: adset }] : []),
@@ -395,12 +406,14 @@ app.get('/api/drill', async (req, res) => {
       const rows = (raw?.data || []).map(row => {
         const r = normalizeRow(row);
         const adsetName = r.adset_name ?? r.adgroup_name ?? r.ad_group_name ?? '';
-        return { ...r, adset: adsetName, name: level === 'ad' ? (r.ad_name || '(unnamed ad)') : (adsetName || '(unnamed ad set)') };
+        const adName = r.ad_name || r.ad_group_ad_ad_name
+          || (r.ad_group_ad_ad_id ? `${GOOGLE_AD_TYPE(r.ad_group_ad_ad_type)} · ${r.ad_group_ad_ad_id}` : '');
+        return { ...r, adset: adsetName, name: level === 'ad' ? (adName || '(unnamed ad)') : (adsetName || '(unnamed ad set)') };
       })
         // Same rule as campaigns: keep rows with spend, or with late-attributed revenue
         .filter(r => parseFloat(r.spend || 0) > 0 || r.revenue > 0)
         .sort((a, b) => (parseFloat(b.spend) || 0) - (parseFloat(a.spend) || 0));
-      return { platform, lens, level, campaign, adset: adset || null, dateRange: range, rows };
+      return { platform, lens, level, scope: allAds ? 'campaign' : null, campaign, adset: adset || null, dateRange: range, rows };
     }, DRILL_TTL);
     res.json(result);
   } catch (err) {

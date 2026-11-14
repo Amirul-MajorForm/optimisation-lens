@@ -20,8 +20,8 @@ export const fetchGoals = (params, signal, { trend = false } = {}) =>
   getJSON('/api/goals', params, signal, trend ? { trend: '1' } : {});
 
 // Drill-down: a campaign's ad sets, or (with adset) an ad set's ads
-export const fetchDrill = (params, { platform, lens, campaign, adset }, signal) =>
-  getJSON('/api/drill', params, signal, { platform, lens, campaign, ...(adset ? { adset } : {}) });
+export const fetchDrill = (params, { platform, lens, campaign, adset, scope }, signal) =>
+  getJSON('/api/drill', params, signal, { platform, lens, campaign, ...(adset ? { adset } : {}), ...(scope ? { scope } : {}) });
 
 // Campaign trend chart: daily data for one campaign, requested only when opened
 export const fetchTrend = (params, { campaign, platform, lens, lpv = false, rev = false }, signal) =>
