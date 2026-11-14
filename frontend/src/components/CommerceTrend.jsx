@@ -212,6 +212,7 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
                   <span style={{ color: theme.textMuted }}>
                     Totals since {months.length ? monthLabel(months[0], false) : ''}. Hover a month for the platform breakdown. * current month to date.
                     {data?.missingFx?.length ? ` Excluded (no FOREX rate): ${data.missingFx.join(', ')}.` : ''}
+                    {data?.partialErrors?.length ? ` Not loaded this time (try Refresh): ${[...new Set(data.partialErrors.map(e => PLATFORM_LABEL[e.split(':')[0]] || e.split(':')[0]))].join(', ')}.` : ''}
                   </span>
                 )}
               </div>

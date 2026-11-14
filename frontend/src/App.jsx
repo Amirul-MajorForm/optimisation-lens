@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
-import CampaignTable, { DrillContext, GoalModelContext } from './components/CampaignTable.jsx';
+import CampaignTable, { DrillContext, GoalModelContext, StatusContext } from './components/CampaignTable.jsx';
 import CommerceLens from './components/CommerceLens.jsx';
 import GoalTracker from './components/GoalTracker.jsx';
 import TrendPanel from './components/TrendPanel.jsx';
@@ -232,6 +232,19 @@ export default function App() {
   const goalList = goals?.data?.markets?.[market];
   const goalModels = useMemo(() => new Map((goalList || []).map(g => [String(g.campaign).trim().toLowerCase(), String(g.model).toUpperCase()])), [goalList]);
 
+  // Campaign status (ended / paused) for the selected range: loaded in the
+  // background once the tables have data, cached per range
+  const [statusByRange, setStatusByRange] = useState({});
+  const statusKey = `${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
+  useEffect(() => {
+    if (!data || statusByRange[statusKey]) return;
+    setStatusByRange(s => ({ ...s, [statusKey]: { loading: true } }));
+    fetchStatus(fetchParams)
+      .then(r => setStatusByRange(s => ({ ...s, [statusKey]: { statuses: r.statuses || {} } })))
+      .catch(() => setStatusByRange(s => ({ ...s, [statusKey]: { statuses: {} } })));
+  }, [data, statusKey]);
+  const statuses = statusByRange[statusKey]?.statuses || null;
+
   // Ad set / ad drill-down in the campaign tables (fetched per click)
   const drillRangeKey = `${market}|${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
   const drillValue = useMemo(() => ({
@@ -320,6 +333,7 @@ export default function App() {
 
             <DrillContext.Provider value={drillValue}>
             <GoalModelContext.Provider value={goalModels}>
+            <StatusContext.Provider value={statuses}>
             <main style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: mobile ? '12px 10px 48px' : '24px 24px 64px' }}>
               {shownError && (
                 <div style={{
@@ -377,6 +391,7 @@ export default function App() {
               )}
 
             </main>
+            </StatusContext.Provider>
             </GoalModelContext.Provider>
             </DrillContext.Provider>
 

@@ -23,6 +23,9 @@ export const fetchGoals = (params, signal, { trend = false } = {}) =>
 export const fetchDrill = (params, { platform, lens, campaign, adset, scope }, signal) =>
   getJSON('/api/drill', params, signal, { platform, lens, campaign, ...(adset ? { adset } : {}), ...(scope ? { scope } : {}) });
 
+// Campaign status (ended / paused / removed) per platform, for greying out rows
+export const fetchStatus = (params, signal) => getJSON('/api/status', params, signal);
+
 // Campaign trend chart: daily data for one campaign, requested only when opened
 export const fetchTrend = (params, { campaign, platform, lens, lpv = false, rev = false }, signal) =>
   getJSON('/api/trend', params, signal, { campaign, platform, lens, ...(lpv ? { lpv: '1' } : {}), ...(rev ? { rev: '1' } : {}) });

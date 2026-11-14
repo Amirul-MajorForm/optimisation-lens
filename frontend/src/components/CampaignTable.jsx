@@ -83,6 +83,9 @@ export const DrillContext = createContext(null);
 // the objective word. CPV = 6-second views on TikTok, ThruPlays on Meta (same
 // as goal tracking).
 export const GoalModelContext = createContext(null);
+// Campaign status per platform: { meta: { [campaign]: { state, label, end } }, ... }
+export const StatusContext = createContext(null);
+const fmtDay = iso => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const MODEL_COLUMN = {
   CPLV: () => 'cplv', CPM: () => 'cpm', CPC: () => 'cpc', CTR: () => 'ctr', CPA: () => 'cpa', ROAS: () => 'roas', ROI: () => 'roas',
   CPV: platform => ({ tiktok: 'views_short', meta: 'views_15s' }[platform] || null),
@@ -404,6 +407,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   const [, setFontsReady] = useState(false);
   useEffect(() => { document.fonts?.ready?.then(() => setFontsReady(true)); }, []);
   const goalModels = useContext(GoalModelContext);
+  const statusMap = useContext(StatusContext)?.[platform] || null;
   const [openRows, setOpenRows] = useState({});   // key -> true
   const [drillData, setDrillData] = useState({}); // key -> { loading | rows | error }
   useEffect(() => { setOpenRows({}); setDrillData({}); }, [drill?.rangeKey]);
@@ -466,7 +470,8 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
     // TikTok GMV Max campaigns report only campaign-level totals (no ad groups)
     const gmvMax = platform === 'tiktok' && parseFloat(row.gmv_cost) > 0;
     const cData = campaignDataKey(row.campaign_name);
-    flatRows.push({ row, depth: 0, key: cKey, canOpen: !!drill && !gmvMax && platform !== 'amazon',
+    const inactive = statusMap?.[row.campaign_name] || null;
+    flatRows.push({ row, depth: 0, key: cKey, inactive, canOpen: !!drill && !gmvMax,
       toggle: () => toggleRow(cKey, cData, campaignArgs(row.campaign_name)) });
     if (!openRows[cKey]) continue;
     const cd = drillData[cData];
@@ -503,7 +508,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
     for (const as of [...cd.rows].sort(byCurrentSort)) {
       const aKey = `a|${row.campaign_name}|${as.adset}`;
       const aArgs = { campaign: row.campaign_name, adset: as.adset };
-      flatRows.push({ row: as, depth: 1, key: aKey, level: one, canOpen: true,
+      flatRows.push({ row: as, depth: 1, key: aKey, level: one, canOpen: platform !== 'amazon',
         toggle: () => toggleRow(aKey, aKey, aArgs) });
       if (!openRows[aKey]) continue;
       const ad = drillData[aKey];
@@ -523,6 +528,12 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   };
 
   const darkBadge = theme.bg === '#080d1a';
+  const statusEl = st => st && (
+    <span data-status={st.state} title={st.end ? `${st.label} ${fmtDay(st.end)}` : st.label} style={{
+      marginLeft: 6, padding: '0 6px', borderRadius: 4, fontSize: 9.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase',
+      whiteSpace: 'nowrap', cursor: 'help', color: theme.textSecondary, background: theme.border, verticalAlign: 1,
+    }}>{st.label}</span>
+  );
   const badgeEl = badge => badge && (
     <span data-badge={badge.kind} title={badge.tip} style={{
       marginLeft: 6, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'help',
@@ -532,7 +543,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   );
 
   // Name column width (desktop): longest name + its indent / buttons
-  const nameExtras = r => (r.depth === 0 ? (onTrend ? 30 : 0) + (r.canOpen ? 16 : 0) : r.depth * 16 + 16) + (r.badge ? 58 : 0);
+  const nameExtras = r => (r.depth === 0 ? (onTrend ? 30 : 0) + (r.canOpen ? 16 : 0) : r.depth * 16 + 16) + (r.badge ? 58 : 0) + (r.inactive ? 66 : 0);
   const nameW = mobile ? 168 : Math.min(760, Math.max(200, ...flatRows.filter(r => !r.status).map(r =>
     Math.ceil(textWidth(r.depth > 0 ? r.row.name : r.row.campaign_name, NAME_FONT(r.depth)) + nameExtras(r) + 26))));
   const metricsW = metricsWidthOf(columns);
@@ -675,7 +686,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                         </td>
                       </tr>
                     )
-                    : flatRows.map(({ row, depth, key: rowKey, status, level, canOpen, toggle, badge }) => {
+                    : flatRows.map(({ row, depth, key: rowKey, status, level, canOpen, toggle, badge, inactive }) => {
                       const base = depth === 0 ? theme.surface : theme.surfaceAlt;
                       const goalCell = row ? goalCellOf(row, platform, goalModels, variant) : null;
                       if (status) return (
@@ -687,6 +698,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                       <tr
                         key={rowKey}
                         data-depth={depth}
+                        data-inactive={inactive ? inactive.state : undefined}
                         style={{ fontSize: depth === 2 ? 11.5 : 12 }}
                       >
                         {columns.map(col => {
@@ -704,13 +716,13 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                               style={{
                                 padding: depth === 2 ? '4px 10px' : depth === 1 ? '6px 10px' : '8px 10px',
                                 textAlign: col.align,
-                                color: col.key === 'campaign_name' ? (depth === 2 ? theme.textSecondary : theme.textPrimary) : goalCell?.key === col.key ? theme.accent : theme.textSecondary,
-                                fontWeight: col.key === 'campaign_name' ? (depth === 0 ? 500 : 400) : goalCell?.key === col.key ? 700 : 400,
-                                ...(goalCell?.key === col.key ? { boxShadow: `inset 2px 0 0 ${theme.accent}` } : {}),
+                                color: inactive ? theme.textMuted : col.key === 'campaign_name' ? (depth === 2 ? theme.textSecondary : theme.textPrimary) : goalCell?.key === col.key ? theme.accent : theme.textSecondary,
+                                fontWeight: col.key === 'campaign_name' ? (depth === 0 ? 500 : 400) : goalCell?.key === col.key && !inactive ? 700 : 400,
+                                ...(goalCell?.key === col.key && !inactive ? { boxShadow: `inset 2px 0 0 ${theme.accent}` } : {}),
                                 background: layer(
                                   hover?.r === rowKey && hover?.c === col.key ? crossTint
                                     : hover && (hover.r === rowKey || (hover.c === col.key && !col.grow)) ? lineTint : null,
-                                  goalCell?.key === col.key ? theme.accentLight : base),
+                                  goalCell?.key === col.key && !inactive ? theme.accentLight : inactive ? theme.surfaceAlt : base),
                                 borderBottom: `1px solid ${theme.border}`,
                                 verticalAlign: 'top',
                                 lineHeight: 1.4,
@@ -755,12 +767,12 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                         style={{ flexShrink: 0, marginTop: 2, color: theme.textMuted, transition: 'transform 0.15s', transform: openRows[rowKey] ? 'rotate(90deg)' : 'none' }}>
                                         <path d="M9 6l6 6-6 6" />
                                       </svg>
-                                      <span style={{ minWidth: 0 }}>{mobile ? <BreakableName name={val} /> : val}{badgeEl(badge)}</span>
+                                      <span style={{ minWidth: 0 }}>{mobile ? <BreakableName name={val} /> : val}{badgeEl(badge)}{statusEl(inactive)}</span>
                                     </button>
                                   ) : (
                                     <span style={{ minWidth: 0, paddingLeft: depth ? 16 : 0 }}>
                                       {mobile ? <BreakableName name={val} /> : val}
-                                      {badgeEl(badge)}
+                                      {badgeEl(badge)}{statusEl(inactive)}
                                     </span>
                                   )}
                                 </div>

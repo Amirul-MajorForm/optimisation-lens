@@ -64,6 +64,16 @@ const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'
 }, { priority });
 
 const DAY = 86400000;
+
+// Give up waiting on a query after `ms` (reported as a partial error), so one
+// slow source cannot hold a whole response past the hosting gateway's limit
+function withTimeout(promise, ms, label) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} took longer than ${Math.round(ms / 1000)}s`)), ms); }),
+  ]);
+}
 const isoDay = t => new Date(t).toISOString().slice(0, 10);
 
 // Sum rows that share the same dimension values (results of split queries). All
@@ -71,7 +81,8 @@ const isoDay = t => new Date(t).toISOString().slice(0, 10);
 // when a single campaign's date range had to be split, and average watch time,
 // which is re-weighted by video plays (never summed).
 const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name', 'adset_name', 'adgroup_name', 'ad_group_name',
-  'gadw_ad_group_ad_ad_id', 'ad_group_ad_ad_id', 'gadw_ad_group_ad_ad_name', 'ad_group_ad_ad_name', 'gadw_ad_group_ad_ad_type', 'ad_group_ad_ad_type'];
+  'gadw_ad_group_ad_ad_id', 'ad_group_ad_ad_id', 'gadw_ad_group_ad_ad_name', 'ad_group_ad_ad_name', 'gadw_ad_group_ad_ad_type', 'ad_group_ad_ad_type',
+  'amazonads_ad_group_name'];
 const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
 const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions' };
 function mergeRows(...results) {
@@ -354,7 +365,7 @@ function normalizeDate(v) {
 // Same metrics as the campaign tables; one TMR request per click, cached.
 // Accounts: the campaign's own market account first, then the others (like
 // the trend chart), because some campaigns run from another market's account.
-const ADSET_DIM = { meta: 'fads_adset_name', tiktok: 'ttads_adgroup_name', google: 'gadw_ad_group_name' };
+const ADSET_DIM = { meta: 'fads_adset_name', tiktok: 'ttads_adgroup_name', google: 'gadw_ad_group_name', amazon: 'amazonads_ad_group_name' };
 const DRILL_TTL = 30 * 60 * 1000;
 // TikTok will not combine GMV Max fields with ad group / ad names (the query
 // hangs until TMR's 504), so drill-downs leave them out. GMV Max campaigns
@@ -362,6 +373,7 @@ const DRILL_TTL = 30 * 60 * 1000;
 const GMV_FIELDS = ['ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'];
 
 function campaignAccounts(platform, lens, campaign) {
+  if (platform === 'amazon') return { own: AMAZON_ACCOUNTS, others: [] };
   const market = detectMarket(campaign);
   const cpas = lens === 'commerce' && platform === 'meta';
   const all = cpas ? [...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD] : ALL_ACCOUNTS[platform];
@@ -385,10 +397,12 @@ app.get('/api/drill', async (req, res) => {
     const { platform, campaign, adset, lens = 'brand' } = req.query;
     const allAds = req.query.scope === 'campaign';
     if (!ADSET_DIM[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
+    // Amazon breaks down to ad groups only
+    if (platform === 'amazon' && (adset || allAds)) return res.status(400).json({ error: 'Amazon drill-down stops at ad groups' });
     const level = adset || allAds ? 'ad' : 'adset';
     const range = resolveDateRange(req.query);
     const metrics = lens === 'commerce' && platform === 'meta' ? CPAS_METRICS
-      : { meta: META_METRICS, tiktok: TIKTOK_METRICS.filter(m => !GMV_FIELDS.includes(m)), google: GOOGLE_METRICS }[platform];
+      : { meta: META_METRICS, tiktok: TIKTOK_METRICS.filter(m => !GMV_FIELDS.includes(m)), google: GOOGLE_METRICS, amazon: AMAZON_METRICS }[platform];
     const { own, others } = campaignAccounts(platform, lens, campaign);
 
     const result = await cached(`drill_${lens}_${platform}_${level}_${allAds ? 'all' : ''}_${campaign}_${adset || ''}_${range.startDate}_${range.endDate}`, async () => {
@@ -399,6 +413,7 @@ app.get('/api/drill', async (req, res) => {
           ...(adset ? [{ fieldId: ADSET_DIM[platform], operator: 'equals', value: adset }] : []),
         ],
         priority: PRIORITY.user, // the user is waiting on this one
+        ...(platform === 'amazon' ? { split: false } : {}),
       };
       const hasRows = r => (r?.data || []).length > 0;
       let raw = own.length ? await makeQuery(own, metrics, range, opts) : null;
@@ -418,6 +433,79 @@ app.get('/api/drill', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[drill error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Campaign status (greys out ended / paused campaigns): one background request
+// per platform for the selected range, cached for an hour. Each platform's own
+// status and end date decide:
+//   Ended   end date before today (Google: serving status ENDED)
+//   Paused  paused / switched off (TikTok: operation status DISABLE)
+//   Removed deleted / archived / removed
+const STATUS_TTL = 60 * 60 * 1000;
+const STATUS_SOURCES = [
+  { platform: 'meta', accounts: () => [...ALL_ACCOUNTS.meta, ...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD],
+    dims: ['fads_campaign_effective_status', 'fads_campaign_stop_time'],
+    classify: r => {
+      const st = String(r.campaign_effective_status || '').toUpperCase(), end = String(r.campaign_stop_time || '').slice(0, 10);
+      if (/DELETED|ARCHIVED/.test(st)) return ['removed', 'Removed'];
+      if (end && end < isoDay(Date.now())) return ['ended', 'Ended', end];
+      if (/PAUSED/.test(st)) return ['paused', 'Paused'];
+      return null;
+    } },
+  { platform: 'tiktok', accounts: () => ALL_ACCOUNTS.tiktok,
+    dims: ['ttads_campaign_operation_status', 'ttads_campaign_secondary_status'],
+    classify: r => {
+      const sec = String(r.campaign_secondary_status || '').toUpperCase(), op = String(r.campaign_operation_status || '').toUpperCase();
+      if (/DELETE/.test(sec)) return ['removed', 'Removed'];
+      if (op === 'DISABLE' || /STATUS_DISABLE$/.test(sec)) return ['paused', 'Paused'];
+      return null;
+    } },
+  { platform: 'google', accounts: () => ALL_ACCOUNTS.google,
+    dims: ['gadw_campaign_status', 'gadw_campaign_serving_status', 'gadw_campaign_end_date'],
+    classify: r => {
+      const st = String(r.campaign_status || '').toUpperCase(), sv = String(r.campaign_serving_status || '').toUpperCase(), end = String(r.campaign_end_date || '').slice(0, 10);
+      if (st === 'REMOVED') return ['removed', 'Removed'];
+      if (sv === 'ENDED' || (end && end < isoDay(Date.now()))) return ['ended', 'Ended', end];
+      if (st === 'PAUSED' || sv === 'SUSPENDED') return ['paused', 'Paused'];
+      return null;
+    } },
+  { platform: 'amazon', accounts: () => AMAZON_ACCOUNTS,
+    dims: ['amazonads_campaign_status', 'amazonads_campaign_end_date'],
+    classify: r => {
+      const st = String(r.campaign_status || '').toUpperCase(), end = String(r.campaign_end_date || '').slice(0, 10);
+      if (st === 'ARCHIVED') return ['removed', 'Removed'];
+      if (end && end < isoDay(Date.now())) return ['ended', 'Ended', end];
+      if (st === 'PAUSED') return ['paused', 'Paused'];
+      return null;
+    } },
+];
+
+app.get('/api/status', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const range = resolveDateRange(req.query);
+    const result = await cached(`status_${range.startDate}_${range.endDate}`, async () => {
+      const statuses = {};
+      const notes = [];
+      await Promise.all(STATUS_SOURCES.map(async src => {
+        try {
+          const raw = await withTimeout(makeQuery(src.accounts(), ['impressions'], range,
+            { dimensions: ['campaign_name', ...src.dims], priority: PRIORITY.background, split: false }), 90000, src.platform);
+          const out = (statuses[src.platform] = {});
+          for (const row of raw?.data || []) {
+            const r = Object.fromEntries(Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw|amazonads)_/, ''), v]));
+            const c = src.classify(r);
+            if (c && r.campaign_name) out[r.campaign_name] = { state: c[0], label: c[1], ...(c[2] ? { end: c[2] } : {}) };
+          }
+        } catch (err) { notes.push(`${src.platform}: ${err.message}`); console.error('[status]', src.platform, err.message); }
+      }));
+      return { dateRange: range, statuses, notes };
+    }, STATUS_TTL);
+    res.json(result);
+  } catch (err) {
+    console.error('[status error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -594,7 +682,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
       const errors = [];
       for (const src of sources) {
         let raw;
-        try { raw = await makeQuery(src.accounts, src.metrics, range, opts); }
+        try { raw = await withTimeout(makeQuery(src.accounts, src.metrics, range, { ...opts, ...(src.key === 'amazon' ? { split: false } : {}) }), 75000, src.key); }
         catch (err) { errors.push(`${src.key}: ${err.message}`); console.error('[commerce monthly]', src.key, err.message); continue; }
         for (const row of raw?.data || []) {
           const r = normalizeRow(row);
@@ -736,7 +824,7 @@ app.get('/api/commerce', async (req, res) => {
       const [localRaw, sgdRaw, amazonRaw] = await Promise.all([
         makeQuery(CPAS_ACCOUNTS.local, CPAS_METRICS, dateRangeObj),
         makeQuery(CPAS_ACCOUNTS.SGD, CPAS_METRICS, dateRangeObj),
-        makeQuery(AMAZON_ACCOUNTS, AMAZON_METRICS, dateRangeObj).catch(err => {
+        withTimeout(makeQuery(AMAZON_ACCOUNTS, AMAZON_METRICS, dateRangeObj, { split: false }), 75000, 'Amazon').catch(err => {
           notes.push(`Amazon: ${err.message}`);
           console.error('[commerce amazon]', err.message);
           return null;
@@ -782,6 +870,11 @@ if (existsSync(distPath)) {
   app.use(express.static(distPath));
   app.get('*', (_req, res) => res.sendFile(join(distPath, 'index.html')));
 }
+
+// Log unexpected errors instead of letting them stop the server (a stopped
+// server shows up as HTTP 502 from the hosting gateway)
+process.on('unhandledRejection', err => console.error('[unhandled rejection]', err?.message || err));
+process.on('uncaughtException', err => console.error('[uncaught exception]', err?.message || err));
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
