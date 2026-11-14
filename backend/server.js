@@ -82,7 +82,7 @@ const isoDay = t => new Date(t).toISOString().slice(0, 10);
 // which is re-weighted by video plays (never summed).
 const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name', 'adset_name', 'adgroup_name', 'ad_group_name',
   'gadw_ad_group_ad_ad_id', 'ad_group_ad_ad_id', 'gadw_ad_group_ad_ad_name', 'ad_group_ad_ad_name', 'gadw_ad_group_ad_ad_type', 'ad_group_ad_ad_type',
-  'amazonads_ad_group_name'];
+  'amazonads_targeting_expression'];
 const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
 const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions' };
 function mergeRows(...results) {
@@ -365,7 +365,11 @@ function normalizeDate(v) {
 // Same metrics as the campaign tables; one TMR request per click, cached.
 // Accounts: the campaign's own market account first, then the others (like
 // the trend chart), because some campaigns run from another market's account.
-const ADSET_DIM = { meta: 'fads_adset_name', tiktok: 'ttads_adgroup_name', google: 'gadw_ad_group_name', amazon: 'amazonads_ad_group_name' };
+// Amazon breaks a campaign down by targeting group (close match, loose match,
+// substitutes, complements for auto campaigns). Amazon reports targeting and
+// advertised products separately, so there is no ASIN level under it.
+const ADSET_DIM = { meta: 'fads_adset_name', tiktok: 'ttads_adgroup_name', google: 'gadw_ad_group_name', amazon: 'amazonads_targeting_expression' };
+const AMAZON_TARGETING = { 'close-match': 'Close match', 'loose-match': 'Loose match', substitutes: 'Substitutes', complements: 'Complements' };
 const DRILL_TTL = 30 * 60 * 1000;
 // TikTok will not combine GMV Max fields with ad group / ad names (the query
 // hangs until TMR's 504), so drill-downs leave them out. GMV Max campaigns
@@ -397,8 +401,8 @@ app.get('/api/drill', async (req, res) => {
     const { platform, campaign, adset, lens = 'brand' } = req.query;
     const allAds = req.query.scope === 'campaign';
     if (!ADSET_DIM[platform] || !campaign) return res.status(400).json({ error: 'platform and campaign are required' });
-    // Amazon breaks down to ad groups only
-    if (platform === 'amazon' && (adset || allAds)) return res.status(400).json({ error: 'Amazon drill-down stops at ad groups' });
+    // Amazon breaks down to targeting groups only
+    if (platform === 'amazon' && (adset || allAds)) return res.status(400).json({ error: 'Amazon drill-down stops at targeting groups' });
     const level = adset || allAds ? 'ad' : 'adset';
     const range = resolveDateRange(req.query);
     const metrics = lens === 'commerce' && platform === 'meta' ? CPAS_METRICS
@@ -420,7 +424,8 @@ app.get('/api/drill', async (req, res) => {
       if (!hasRows(raw) && others.length) raw = await makeQuery(others, metrics, range, opts);
       const rows = (raw?.data || []).map(row => {
         const r = normalizeRow(row);
-        const adsetName = r.adset_name ?? r.adgroup_name ?? r.ad_group_name ?? '';
+        const adsetName = r.adset_name ?? r.adgroup_name ?? r.ad_group_name
+          ?? (r.targeting_expression != null ? (AMAZON_TARGETING[String(r.targeting_expression).toLowerCase()] || r.targeting_expression) : '');
         const adName = r.ad_name || r.ad_group_ad_ad_name
           || (r.ad_group_ad_ad_id ? `${GOOGLE_AD_TYPE(r.ad_group_ad_ad_type)} · ${r.ad_group_ad_ad_id}` : '');
         return { ...r, adset: adsetName, name: level === 'ad' ? (adName || '(unnamed ad)') : (adsetName || '(unnamed ad set)') };

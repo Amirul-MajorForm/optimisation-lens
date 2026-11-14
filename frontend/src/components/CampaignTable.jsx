@@ -109,7 +109,7 @@ function goalCellOf(row, platform, goalModels, variant) {
   const what = MODEL_LABEL[key]?.[platform] ? `${g.model} (${MODEL_LABEL[key][platform]})` : g.model;
   return { key, tip: `Main goal metric: ${what}, from the ${g.source}` };
 }
-const LEVEL_NAME = { meta: ['ad set', 'ad sets'], tiktok: ['ad group', 'ad groups'], google: ['ad group', 'ad groups'], amazon: ['ad group', 'ad groups'] };
+const LEVEL_NAME = { meta: ['ad set', 'ad sets'], tiktok: ['ad group', 'ad groups'], google: ['ad group', 'ad groups'], amazon: ['targeting group', 'targeting groups'] };
 
 // "Avg 2.2s" under video views: seconds per video play, re-weighted by plays
 const WatchNote = ({ sec, platform, theme }) => (sec == null ? null : (
@@ -505,10 +505,12 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
       }
       continue;
     }
+    // Amazon targeting groups: winner / loser between them
+    const setBadges = platform === 'amazon' ? adBadges(cd.rows, row, platform, goalModels, variant, currency, { noun: 'targeting groups', where: 'in this campaign' }) : new Map();
     for (const as of [...cd.rows].sort(byCurrentSort)) {
       const aKey = `a|${row.campaign_name}|${as.adset}`;
       const aArgs = { campaign: row.campaign_name, adset: as.adset };
-      flatRows.push({ row: as, depth: 1, key: aKey, level: one, canOpen: platform !== 'amazon',
+      flatRows.push({ row: as, depth: 1, key: aKey, level: one, canOpen: platform !== 'amazon', badge: setBadges.get(as),
         toggle: () => toggleRow(aKey, aKey, aArgs) });
       if (!openRows[aKey]) continue;
       const ad = drillData[aKey];
