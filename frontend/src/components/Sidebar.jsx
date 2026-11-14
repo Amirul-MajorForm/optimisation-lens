@@ -64,11 +64,20 @@ const ICON_SEARCH = (
   </svg>
 );
 
+const ICON_PACING = (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 13a9 9 0 0 1 18 0"/>
+    <path d="M12 13l4-4"/>
+    <path d="M3 19h18"/>
+  </svg>
+);
+
 const TABS = [
   { id: 'brand',    label: 'Brand Lens',    icon: ICON_BRAND },
   { id: 'commerce', label: 'Commerce Lens', icon: ICON_COMMERCE },
   { id: 'sales',    label: 'Sales Lens',    icon: ICON_SALES },
   { id: 'search',   label: 'Search Lens',   icon: ICON_SEARCH },
+  { id: 'pacing',   label: 'Pacing Lens',   icon: ICON_PACING },
 ];
 
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose }) {

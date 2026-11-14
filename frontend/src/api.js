@@ -29,6 +29,18 @@ export const fetchStatus = (params, signal) => getJSON('/api/status', params, si
 // Search Lens: Google keywords / search terms + Amazon search terms (all markets)
 export const fetchSearch = (params, signal) => getJSON('/api/search', params, signal);
 
+// Pacing Lens: MajorPace sheet rows; platform links load separately (slower)
+export async function fetchPacing(signal, fresh = false) {
+  const res = await fetch(`/api/pacing${fresh ? '?fresh=1' : ''}`, { signal });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `HTTP ${res.status}`); }
+  return res.json();
+}
+export async function fetchPacingLinks(signal) {
+  const res = await fetch('/api/pacing/links', { signal });
+  if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `HTTP ${res.status}`); }
+  return res.json();
+}
+
 // Campaign trend chart: daily data for one campaign, requested only when opened
 export const fetchTrend = (params, { campaign, platform, lens, lpv = false, rev = false }, signal) =>
   getJSON('/api/trend', params, signal, { campaign, platform, lens, ...(lpv ? { lpv: '1' } : {}), ...(rev ? { rev: '1' } : {}) });

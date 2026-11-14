@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch, fetchPacing, fetchPacingLinks } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable, { DrillContext, GoalModelContext, StatusContext } from './components/CampaignTable.jsx';
@@ -10,6 +10,7 @@ import TrendPanel from './components/TrendPanel.jsx';
 import SalesLens from './components/SalesLens.jsx';
 import TopAdsPanel from './components/TopAdsPanel.jsx';
 import SearchLens from './components/SearchLens.jsx';
+import PacingLens from './components/PacingLens.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import { useIsMobile } from './useViewport.js';
 
@@ -221,7 +222,7 @@ export default function App() {
   const topAdsLens = activeTab === 'commerce' ? 'commerce' : 'brand';
   const topAdsKey = `${topAdsLens}|${market}|${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
   useEffect(() => {
-    if (!topAdsOpen || activeTab === 'sales' || activeTab === 'search' || topAds[topAdsKey]) return;
+    if (!topAdsOpen || activeTab === 'sales' || activeTab === 'search' || activeTab === 'pacing' || topAds[topAdsKey]) return;
     const key = topAdsKey;
     setTopAds(t => ({ ...t, [key]: { loading: true } }));
     fetchTopAds(fetchParams, { market, lens: topAdsLens })
@@ -245,6 +246,18 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'search' && !searchByRange[searchKey]) loadSearch();
   }, [activeTab, searchKey, searchByRange, loadSearch]);
+
+  // Pacing Lens: the MajorPace sheet (all markets); platform links follow
+  const [pacing, setPacing] = useState(null);
+  const [pacingLinks, setPacingLinks] = useState(null);
+  const loadPacing = useCallback((fresh = false) => {
+    setPacing(p => (fresh || !p ? { ...(p || {}), loading: true } : p));
+    fetchPacing(undefined, fresh)
+      .then(d => setPacing({ data: d }))
+      .catch(e => setPacing({ error: e.message }));
+    fetchPacingLinks().then(setPacingLinks).catch(() => setPacingLinks({ links: {} }));
+  }, []);
+  useEffect(() => { if (activeTab === 'pacing' && !pacing) loadPacing(); }, [activeTab, pacing, loadPacing]);
 
   // Campaign status (ended / paused) for the selected range: loaded in the
   // background once the tables have data, cached per range
@@ -271,6 +284,7 @@ export default function App() {
     if (activeTab === 'brand') loadGoals();
     if (activeTab === 'commerce') loadCommerce();
     if (activeTab === 'search') loadSearch(true);
+    if (activeTab === 'pacing') loadPacing(true);
   };
 
   return (
@@ -335,7 +349,7 @@ export default function App() {
               darkMode={darkMode}
               market={market}
               onMarketChange={handleMarketChange}
-              marketName={marketName}
+              marketName={activeTab === 'pacing' ? 'OATSIDE · All markets' : marketName}
               activeMarkets={activeMarkets}
               dateRange={dateRange}
               onDateRangeChange={handleDateRangeChange}
@@ -344,11 +358,12 @@ export default function App() {
               onCustomStartChange={setCustomStart}
               onCustomEndChange={setCustomEnd}
               onApplyCustom={handleApplyCustom}
-              dateLabel={dateLabel}
+              dateLabel={activeTab === 'pacing' ? (pacing?.data?.pacingDate ? `Spend as of ${new Date(`${pacing.data.pacingDate}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}` : '') : dateLabel}
               onRefresh={handleRefresh}
               refreshing={isCommerce ? (loading || commerceLoading) : loading}
-              onTopAds={activeTab === 'sales' || activeTab === 'search' ? null : () => setTopAdsOpen(o => !o)}
-              topAdsOpen={topAdsOpen && activeTab !== 'sales' && activeTab !== 'search'}
+              onTopAds={activeTab === 'sales' || activeTab === 'search' || activeTab === 'pacing' ? null : () => setTopAdsOpen(o => !o)}
+              hideFilters={activeTab === 'pacing'}
+              topAdsOpen={topAdsOpen && activeTab !== 'sales' && activeTab !== 'search' && activeTab !== 'pacing'}
               mobile={mobile}
               onMenu={() => setNavOpen(true)}
             />
@@ -386,6 +401,10 @@ export default function App() {
                 </>
               )}
 
+              {activeTab === 'pacing' && (
+                <PacingLens state={pacing} links={pacingLinks} theme={theme} darkMode={darkMode} mobile={mobile} />
+              )}
+
               {activeTab === 'search' && (
                 <SearchLens state={searchByRange[searchKey]} market={market} marketName={marketName} theme={theme} darkMode={darkMode} />
               )}
@@ -421,7 +440,7 @@ export default function App() {
             </GoalModelContext.Provider>
             </DrillContext.Provider>
 
-            {topAdsOpen && activeTab !== 'sales' && activeTab !== 'search' && (
+            {topAdsOpen && activeTab !== 'sales' && activeTab !== 'search' && activeTab !== 'pacing' && (
               <TopAdsPanel
                 state={topAds[topAdsKey]}
                 lens={topAdsLens}

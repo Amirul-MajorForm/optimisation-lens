@@ -26,7 +26,7 @@ export default function Header({
   market, onMarketChange, marketName, activeMarkets,
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
-  dateLabel, onRefresh, refreshing, onTopAds, topAdsOpen, mobile = false, onMenu,
+  dateLabel, onRefresh, refreshing, onTopAds, topAdsOpen, mobile = false, onMenu, hideFilters = false,
 }) {
   const sel = {
     background: theme.surface,
@@ -87,10 +87,12 @@ export default function Header({
           {marketName || 'OATSIDE'}
         </div>
         <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 1 }}>
-          {mobile && dateLabel ? dateLabel : 'Performance Dashboard'}
+          {(mobile || hideFilters) && dateLabel ? dateLabel : 'Performance Dashboard'}
         </div>
       </div>
 
+      {/* Pacing Lens covers every market and reads the sheet: no market / date controls */}
+      {!hideFilters && (<>
       {mobile && <div style={{ order: 3, flexBasis: '100%', height: 0 }} />}
 
       {/* Market tabs */}
@@ -151,6 +153,8 @@ export default function Header({
           </button>
         </div>
       )}
+
+      </>)}
 
       {onTopAds && (
         <button

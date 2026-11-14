@@ -64,7 +64,7 @@ export function parseCsv(text) {
 // Read a published tab. The CSV export includes rows hidden by a filter in
 // Google Sheets (the HTML view leaves them out), so it is tried first; the HTML
 // view is the fallback, where hidden rows are detected and reported instead.
-async function fetchTab(gid) {
+export async function fetchTab(gid) {
   try {
     const res = await fetch(`${PUB_BASE}/pub?gid=${gid}&single=true&output=csv`, { redirect: 'follow', signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

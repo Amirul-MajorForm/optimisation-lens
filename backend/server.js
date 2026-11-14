@@ -7,6 +7,7 @@ import { existsSync } from 'fs';
 import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { normalizeRow } from './tmr.js';
 import { groupSales } from './sales.js';
+import { loadPacing, platformLink } from './pacing.js';
 import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, AMAZON_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -528,6 +529,61 @@ app.get('/api/status', async (req, res) => {
 //   Amazon search terms: search term + targeting group (auto campaigns have
 //                        no keywords)
 const SEARCH_TTL = 30 * 60 * 1000;
+// Japanese / Chinese / Korean search terms get an English translation next to
+// them, cached for the life of the server. Sources, in order:
+//   1. Google Cloud Translation, if GOOGLE_TRANSLATE_API_KEY is set (reliable)
+//   2. Google Translate's free endpoint (no key; one answer per term). It
+//      rate-limits shared IPs, so after a refusal it is skipped for an hour.
+//   3. A small glossary of common category words, so the main terms always
+//      read in English (only used when every word of a term is in it).
+const CJK = /[぀-ヿ㐀-鿿가-힯]/;
+const translationCache = new Map();
+let freeTranslateBlockedUntil = 0;
+const GLOSSARY = {
+  'オーツミルク': 'oat milk', 'オートミルク': 'oat milk', 'オーツ': 'oat', 'オーツサイド': 'Oatside', 'アーモンドミルク': 'almond milk',
+  '豆乳': 'soy milk', '牛乳': 'milk', 'ミルク': 'milk', '植物性': 'plant-based', '植物性ミルク': 'plant-based milk', '無添加': 'additive-free',
+  '砂糖不使用': 'sugar-free', '無糖': 'unsweetened', 'バリスタ': 'barista', 'チョコレート': 'chocolate', 'コーヒー': 'coffee', '抹茶': 'matcha',
+  'カフェラテ': 'café latte', 'ラテ': 'latte', '大容量': 'large size', 'まとめ買い': 'bulk buy', 'ケース': 'case', 'セット': 'set', '低脂肪': 'low fat',
+  'ココナッツミルク': 'coconut milk', 'ライスミルク': 'rice milk', 'プロテイン': 'protein', 'ヴィーガン': 'vegan', 'ビーガン': 'vegan', 'グルテンフリー': 'gluten-free',
+};
+const glossaryTranslate = t => {
+  const words = t.trim().split(/[\s　]+/);
+  const out = words.map(w => (CJK.test(w) ? GLOSSARY[w] : w));
+  return out.every(Boolean) ? out.join(' ') : null;
+};
+async function translateTerms(terms) {
+  let todo = [...new Set(terms.filter(t => CJK.test(t) && !translationCache.has(t)))];
+  const key = process.env.GOOGLE_TRANSLATE_API_KEY;
+  for (let i = 0; i < todo.length && key; i += 100) {
+    const batch = todo.slice(i, i + 100);
+    try {
+      const res = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${encodeURIComponent(key)}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({ q: batch, target: 'en', format: 'text' }),
+      });
+      const json = await res.json();
+      (json?.data?.translations || []).forEach((t, k) => { if (t?.translatedText) translationCache.set(batch[k], t.translatedText); });
+    } catch (err) { console.warn('[translate api]', err.message); break; }
+  }
+  todo = todo.filter(t => !translationCache.has(t));
+  for (let i = 0; i < todo.length && Date.now() > freeTranslateBlockedUntil; i += 40) {
+    const batch = todo.slice(i, i + 40);
+    try {
+      const res = await fetch(`https://translate.googleapis.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=en&${batch.map(t => `q=${encodeURIComponent(t)}`).join('&')}`,
+        { redirect: 'manual', signal: AbortSignal.timeout(8000) });
+      if (res.status !== 200) { freeTranslateBlockedUntil = Date.now() + 60 * 60 * 1000; console.warn('[translate] free endpoint refused (HTTP', res.status, '), skipping it for an hour'); break; }
+      const json = await res.json();
+      const list = batch.length === 1 && !Array.isArray(json[0]) ? [json] : json;
+      list.forEach((item, k) => { const text = Array.isArray(item) ? item[0] : item; if (typeof text === 'string' && text.trim()) translationCache.set(batch[k], text.trim()); });
+    } catch (err) { console.warn('[translate]', err.message); break; }
+  }
+  const out = {};
+  for (const t of new Set(terms.filter(x => CJK.test(x)))) {
+    const v = translationCache.get(t) || glossaryTranslate(t);
+    if (v) out[t] = v;
+  }
+  return out;
+}
 const titleCase = s => String(s || '').toLowerCase().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 
 app.get('/api/search', async (req, res) => {
@@ -572,11 +628,72 @@ app.get('/api/search', async (req, res) => {
           spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), orders: r.orders || 0, revenue: r.revenue || 0 };
       }).filter(r => r.text && keep(r));
       const currency = Object.fromEntries(Object.entries(MARKETS).map(([m, c]) => [m, { google: c.currency.google, amazon: c.currency.amazon || 'SGD' }]));
-      return { dateRange: range, currency, google: { keywords: googleKeywords, searchTerms: googleTerms }, amazon: { searchTerms: amazonTerms }, notes };
+      const translations = await translateTerms([...googleKeywords, ...googleTerms, ...amazonTerms].map(r => r.text.trim())).catch(() => ({}));
+      return { dateRange: range, currency, google: { keywords: googleKeywords, searchTerms: googleTerms }, amazon: { searchTerms: amazonTerms }, translations, notes };
     }, SEARCH_TTL);
     res.json(result);
   } catch (err) {
     console.error('[search error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Pacing Lens: plan + pacing from the MajorPace sheet (cached 10 minutes)
+const PACING_TTL = 10 * 60 * 1000;
+app.get('/api/pacing', async (req, res) => {
+  try {
+    if (req.query.fresh === '1') dashCache.delete('pacing_sheet');
+    res.json(await cached('pacing_sheet', loadPacing, PACING_TTL));
+  } catch (err) {
+    console.error('[pacing error]', err.message);
+    res.status(500).json({ error: `Could not read the MajorPace sheet: ${err.message}` });
+  }
+});
+
+// Links from each pacing row to its campaign in the ad platform: campaign and
+// account IDs from TMR over the last 120 days, one background request per
+// platform, cached 6 hours. Keyed by platform + lower-case campaign name.
+const LINK_TTL = 6 * 60 * 60 * 1000;
+const LINK_SOURCES = [
+  { platform: 'meta', accounts: () => [...ALL_ACCOUNTS.meta, ...CPAS_ACCOUNTS.local, ...CPAS_ACCOUNTS.SGD], dims: ['fads_account_id', 'fads_campaign_id'] },
+  { platform: 'tiktok', accounts: () => ALL_ACCOUNTS.tiktok, dims: ['ttads_advertiser_id', 'ttads_campaign_id'] },
+  { platform: 'google', accounts: () => ALL_ACCOUNTS.google, dims: ['gadw_account_id_manualentry', 'gadw_campaign_id'] },
+  { platform: 'amazon', accounts: () => AMAZON_ACCOUNTS, dims: ['amazonads_account_id', 'amazonads_campaign_id'] },
+];
+app.get('/api/pacing/links', async (_req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const result = await cached('pacing_links', async () => {
+      const end = getDateRange(1).endDate;
+      const range = { startDate: isoDay(Date.parse(end) - 119 * DAY), endDate: end };
+      const links = {};
+      const notes = [];
+      await Promise.all(LINK_SOURCES.map(async src => {
+        try {
+          const raw = await withTimeout(makeQuery(src.accounts(), ['impressions'], range,
+            { dimensions: ['campaign_name', ...src.dims], priority: PRIORITY.background, chunk: false, split: false }), 90000, src.platform);
+          for (const row of raw?.data || []) {
+            const r = Object.fromEntries(Object.entries(row).map(([k, v]) => [k.replace(/^(ttads|fads|gadw|amazonads)_/, ''), v]));
+            const account = r.account_id ?? r.advertiser_id ?? r.account_id_manualentry;
+            const key = `${src.platform}|${String(r.campaign_name || '').trim().toLowerCase()}`;
+            if (r.campaign_name && account && !links[key]) {
+              links[key] = platformLink(src.platform, { account, id: r.campaign_id, market: detectMarket(r.campaign_name) });
+            }
+          }
+        } catch (err) { notes.push(`${src.platform}: ${err.message}`); console.error('[pacing links]', src.platform, err.message); }
+      }));
+      // Fallback when a campaign name is not found: the market's ad account
+      const accountLinks = {};
+      for (const platform of ['meta', 'tiktok', 'google']) {
+        for (const [market, acc] of Object.entries(ACCOUNTS[platform] || {})) {
+          (accountLinks[platform] ||= {})[market] = platformLink(platform, { account: String(acc).replace(/^(fads_|ttads_|gadw_)/, '') });
+        }
+      }
+      return { links, accountLinks, notes };
+    }, LINK_TTL);
+    res.json(result);
+  } catch (err) {
+    console.error('[pacing links error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });

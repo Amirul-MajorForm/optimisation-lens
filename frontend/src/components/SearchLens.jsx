@@ -111,13 +111,24 @@ function QuadrantChart({ items, avgRoas, medSpend, currency, theme, dark, onPick
           {[...pts].sort((a, b) => b.orders - a.orders).map(p => {
             const cx = x(p.spend), cy = y(p.roas || 0), off = (p.roas || 0) > yMax;
             return (
-              <g key={p.text} onMouseEnter={() => setHover(p)} onClick={() => onPick?.(p)} style={{ cursor: 'pointer' }}>
+              <g key={p.text} data-term={p.text} onMouseEnter={() => setHover(p)} onClick={() => { setHover(h => (h === p ? null : p)); onPick?.(p); }} style={{ cursor: 'pointer' }}>
+                <title>{p.tr ? `${p.text} (${p.tr})` : p.text}</title>
                 <circle cx={cx} cy={cy} r={r(p)} fill={col(p.quadrant)} fillOpacity={hover && hover !== p ? 0.25 : 0.55}
                   stroke={col(p.quadrant)} strokeWidth={hover === p ? 2.5 : 1} />
                 {off && <path d={`M${cx - 4} ${cy - r(p) - 2} L${cx} ${cy - r(p) - 8} L${cx + 4} ${cy - r(p) - 2} Z`} fill={col(p.quadrant)} />}
               </g>
             );
           })}
+          {/* the hovered term, written next to its bubble */}
+          {hover && hover.spend > 0 && (() => {
+            const cx = x(hover.spend), cy = y(hover.roas || 0), left = cx > M.left + iw * 0.6;
+            return (
+              <text data-hover-label x={left ? cx - r(hover) - 6 : cx + r(hover) + 6} y={cy + 4} textAnchor={left ? 'end' : 'start'}
+                fontSize="12" fontWeight="700" fill={theme.textPrimary} stroke={theme.surface} strokeWidth="4" paintOrder="stroke" style={{ pointerEvents: 'none' }}>
+                {hover.text}{hover.tr ? ` · ${hover.tr}` : ''}
+              </text>
+            );
+          })()}
         </svg>
       )}
       {hover && (
@@ -128,6 +139,7 @@ function QuadrantChart({ items, avgRoas, medSpend, currency, theme, dark, onPick
           boxShadow: '0 6px 20px rgba(8,13,26,0.18)', padding: '8px 10px', fontSize: 12, color: theme.textSecondary,
         }}>
           <div style={{ fontWeight: 700, color: theme.textPrimary, marginBottom: 2, overflowWrap: 'anywhere' }}>{hover.text}</div>
+          {hover.tr && <div style={{ color: theme.textMuted, marginBottom: 2, fontStyle: 'italic' }}>“{hover.tr}”</div>}
           <div style={{ fontSize: 10.5, fontWeight: 700, color: col(hover.quadrant), textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 4 }}>{QUADRANTS[hover.quadrant].label}</div>
           <div>Spend <b>{fmt(hover.spend, 'currency', currency)}</b> · ROAS <b>{hover.roas != null ? `${hover.roas.toFixed(2)}x` : '—'}</b></div>
           <div>{Math.round(hover.orders * 10) / 10} conv. · {Math.round(hover.clicks)} clicks · CPA {hover.cpa != null ? fmt(hover.cpa, 'currency', currency) : '—'}</div>
@@ -197,15 +209,16 @@ function TermTable({ rows, cols, currency, theme, dark, action, sortInit = ['spe
             {sorted.slice(0, limit).map(r => (
               <tr key={r.text}>
                 {cols.map(c => (
-                  <td key={c.key} title={c.key === 'via' || c.key === 'text' ? `${r[c.key] || ''}${c.key === 'text' && r.campaigns ? `\nCampaigns: ${[...r.campaigns].join(', ')}` : ''}` : undefined}
+                  <td key={c.key} title={c.key === 'via' || c.key === 'text' ? `${r[c.key] || ''}${c.key === 'text' && r.tr ? ` (${r.tr})` : ''}${c.key === 'text' && r.campaigns ? `\nCampaigns: ${[...r.campaigns].join(', ')}` : ''}` : undefined}
                     style={{ padding: '6px 10px', borderBottom: `1px solid ${theme.border}`, textAlign: c.align || 'right', whiteSpace: 'nowrap',
                       color: c.key === 'text' ? theme.textPrimary : theme.textSecondary, fontWeight: c.key === 'text' ? 500 : 400, background: theme.surface,
-                      ...(c.key === 'text' ? { position: 'sticky', left: 0, zIndex: 1, borderRight: `1px solid ${theme.border}`, maxWidth: 320, overflow: 'hidden', textOverflow: 'ellipsis' } : {}),
+                      ...(c.key === 'text' ? { position: 'sticky', left: 0, zIndex: 1, borderRight: `1px solid ${theme.border}`, maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis' } : {}),
                       ...(c.key === 'via' ? { maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' } : {}) }}>
                     {c.key === 'text' && r.quadrant && (
                       <span title={QUADRANTS[r.quadrant].label} style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', marginRight: 6, background: dark ? QUADRANTS[r.quadrant].dark : QUADRANTS[r.quadrant].light }} />
                     )}
                     {show(r[c.key], c.f)}
+                    {c.key === 'text' && r.tr && <span data-translation style={{ marginLeft: 6, color: theme.textMuted, fontWeight: 400, fontStyle: 'italic' }}>· {r.tr}</span>}
                   </td>
                 ))}
                 {action && <td style={{ padding: '6px 10px', borderBottom: `1px solid ${theme.border}`, color: theme.textSecondary, whiteSpace: 'nowrap', background: theme.surface }}>{action(r)}</td>}
@@ -366,6 +379,8 @@ export default function SearchLens({ state, market, marketName, theme, darkMode 
     return { terms, keywords: kw };
   }, [data, market]);
   const amazon = useMemo(() => (data ? aggregate(data.amazon.searchTerms.filter(r => r.market === market), { via: r => r.targeting }) : null), [data, market]);
+  const tr = data?.translations || {};
+  for (const list of [google?.terms, google?.keywords, amazon]) for (const r of list || []) if (tr[r.text]) r.tr = tr[r.text];
 
   if (state?.error) return <div style={{ padding: 20, color: darkMode ? '#fca5a5' : '#991b1b', fontSize: 13 }}>Could not load search data: {state.error}</div>;
   if (!data) {
