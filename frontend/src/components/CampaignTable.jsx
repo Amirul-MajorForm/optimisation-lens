@@ -652,7 +652,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                           marginLeft: 6, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'help',
                                           color: badge.kind === 'winner' ? (dark ? '#34d399' : '#047857') : (dark ? '#f87171' : '#b91c1c'),
                                           background: badge.kind === 'winner' ? (dark ? 'rgba(52,211,153,0.15)' : '#d1fae5') : (dark ? 'rgba(248,113,113,0.15)' : '#fee2e2'),
-                                        }}>{badge.kind === 'winner' ? 'winner!' : 'loser!'}</span>
+                                        }}>{badge.kind === 'winner' ? 'winner' : 'loser'}</span>
                                       )}
                                     </span>
                                   )}
