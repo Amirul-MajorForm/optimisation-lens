@@ -116,6 +116,42 @@ const WatchNote = ({ sec, platform, theme }) => (sec == null ? null : (
   </span>
 ));
 
+// Ad-level winner / loser within one ad set, judged on the campaign's goal
+// metric (the highlighted column). Cost metrics: lowest wins. CTR / ROAS:
+// highest wins. View goals compare cost per view (6s views on TikTok,
+// ThruPlays on Meta) so a bigger budget does not win on volume alone. Ads need
+// 1,000+ impressions (or, if fewer than two do, any value) and at least two
+// ads must qualify.
+const HIGHER_IS_BETTER = new Set(['ctr', 'roas']);
+const GOAL_LABEL = { views_short: 'cost per 6s view', views_15s: 'cost per ThruPlay', cplv: 'CPLV', cpm: 'CPM', cpc: 'CPC', cpa: 'CPA', ctr: 'CTR', roas: 'ROAS' };
+function adBadges(ads, campaignRow, platform, goalModels, variant, currency) {
+  const out = new Map();
+  const goal = goalCellOf(campaignRow, platform, goalModels, variant);
+  if (!goal) return out;
+  const valueOf = a => {
+    if (goal.key === 'views_short' || goal.key === 'views_15s') {
+      const views = cellValue(a, goal.key, platform), spend = parseFloat(a.spend);
+      return views > 0 && spend > 0 ? spend / views : null;
+    }
+    const v = parseFloat(cellValue(a, goal.key, platform));
+    return Number.isFinite(v) ? v : null;
+  };
+  let pool = ads.map(a => ({ a, v: valueOf(a) })).filter(x => x.v != null);
+  const big = pool.filter(x => parseFloat(x.a.impressions) >= 1000);
+  if (big.length >= 2) pool = big;
+  if (pool.length < 2) return out;
+  const higher = HIGHER_IS_BETTER.has(goal.key);
+  pool.sort((x, y) => (higher ? y.v - x.v : x.v - y.v));
+  const best = pool[0], worst = pool[pool.length - 1];
+  if (best.v === worst.v) return out;
+  const show = v => (goal.key === 'ctr' ? `${v.toFixed(2)}%` : goal.key === 'roas' ? `${v.toFixed(2)}x`
+    : v < 1 ? `${currency} ${v.toFixed(4)}` : fmt(v, 'currency', currency));
+  const what = GOAL_LABEL[goal.key] || goal.key;
+  out.set(best.a, { kind: 'winner', tip: `Best ${what} of ${pool.length} ads in this ad set (${show(best.v)})` });
+  out.set(worst.a, { kind: 'loser', tip: `Weakest ${what} of ${pool.length} ads in this ad set (${show(worst.v)})` });
+  return out;
+}
+
 // Views campaigns only:
 //   short views  Meta 3-second video views | TikTok 6-second video views
 //   15s views    Meta ThruPlays            | TikTok 15-second focused views
@@ -345,11 +381,17 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   const kpiTotal = { ...total, cplv: trafficCplv(campaigns), ...viewsTotals(campaigns, platform) };
   const totalPrevKeys = prevTotalsRoasOnly ? ['roas'] : PREV_KEYS;
 
+  // Any column sorts both ways; rows with no value ("—") always go last
+  const sortValue = r => {
+    const v = cellValue(r, sortKey === 'campaign_name' && r.name != null ? 'name' : sortKey, platform);
+    if (sortKey === 'campaign_name') return v == null ? null : String(v);
+    const n = parseFloat(v);
+    return Number.isFinite(n) ? n : null;
+  };
   const byCurrentSort = (a, b) => {
-    const k = sortKey === 'campaign_name' && a.name != null ? 'name' : sortKey;
-    const av = cellValue(a, k, platform) ?? 0;
-    const bv = cellValue(b, k, platform) ?? 0;
-    const cmp = typeof av === 'string' ? av.localeCompare(bv) : (Number(av) - Number(bv));
+    const av = sortValue(a), bv = sortValue(b);
+    if (av == null || bv == null) return av == null && bv == null ? 0 : av == null ? 1 : -1;
+    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
     return sortDir === 'asc' ? cmp : -cmp;
   };
   const sorted = [...campaigns].sort(byCurrentSort);
@@ -380,17 +422,19 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
         flatRows.push({ status: ad?.error ? `Could not load ads: ${ad.error}` : ad?.rows ? 'No ads with spend in this period' : 'Loading ads…', depth: 2, key: `${aKey}|status` });
         continue;
       }
-      for (const a of [...ad.rows].sort(byCurrentSort)) flatRows.push({ row: a, depth: 2, key: `${aKey}|${a.name}`, level: 'ad' });
+      const badges = adBadges(ad.rows, row, platform, goalModels, variant, currency);
+      for (const a of [...ad.rows].sort(byCurrentSort)) flatRows.push({ row: a, depth: 2, key: `${aKey}|${a.name}`, level: 'ad', badge: badges.get(a) });
     }
   }
 
+  // First click: names A-Z, numbers high to low; clicking again flips it
   const handleSort = (key) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir('desc'); }
+    else { setSortKey(key); setSortDir(key === 'campaign_name' ? 'asc' : 'desc'); }
   };
 
   // Name column width (desktop): longest name + its indent / buttons
-  const nameExtras = r => r.depth === 0 ? (onTrend ? 30 : 0) + (r.canOpen ? 16 : 0) : r.depth * 16 + 16;
+  const nameExtras = r => (r.depth === 0 ? (onTrend ? 30 : 0) + (r.canOpen ? 16 : 0) : r.depth * 16 + 16) + (r.badge ? 58 : 0);
   const nameW = mobile ? 168 : Math.min(760, Math.max(200, ...flatRows.filter(r => !r.status).map(r =>
     Math.ceil(textWidth(r.depth > 0 ? r.row.name : r.row.campaign_name, NAME_FONT(r.depth)) + nameExtras(r) + 26))));
   const metricsW = metricsWidthOf(columns);
@@ -478,7 +522,11 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                     <th
                       key={col.key}
                       onClick={() => handleSort(col.key)}
-                      title={col.title}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSort(col.key); } }}
+                      onMouseEnter={() => setHover({ r: null, c: col.key })}
+                      tabIndex={0}
+                      aria-sort={sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      title={`${col.title ? `${col.title}. ` : ''}Click to sort${sortKey === col.key ? ` (now ${sortDir === 'asc' ? 'ascending' : 'descending'})` : ''}`}
                       style={{
                         padding: '8px 10px',
                         textAlign: col.align,
@@ -496,11 +544,9 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                       }}
                     >
                       {col.labels?.[platform] ?? col.label}
-                      {sortKey === col.key && (
-                        <span style={{ marginLeft: 4, opacity: 0.7 }}>
-                          {sortDir === 'asc' ? '↑' : '↓'}
-                        </span>
-                      )}
+                      <span aria-hidden="true" style={{ marginLeft: 3, opacity: sortKey === col.key ? 0.8 : hover?.c === col.key ? 0.45 : 0 }}>
+                        {sortKey === col.key ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+                      </span>
                     </th>
                   ))}
                 </tr>
@@ -516,7 +562,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                         </td>
                       </tr>
                     )
-                    : flatRows.map(({ row, depth, key: rowKey, status, level, canOpen, toggle }) => {
+                    : flatRows.map(({ row, depth, key: rowKey, status, level, canOpen, toggle, badge }) => {
                       const base = depth === 0 ? theme.surface : theme.surfaceAlt;
                       const goalCell = row ? goalCellOf(row, platform, goalModels, variant) : null;
                       if (status) return (
@@ -599,7 +645,16 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                                       <span style={{ minWidth: 0 }}>{mobile ? <BreakableName name={val} /> : val}</span>
                                     </button>
                                   ) : (
-                                    <span style={{ minWidth: 0, paddingLeft: depth ? 16 : 0 }}>{mobile ? <BreakableName name={val} /> : val}</span>
+                                    <span style={{ minWidth: 0, paddingLeft: depth ? 16 : 0 }}>
+                                      {mobile ? <BreakableName name={val} /> : val}
+                                      {badge && (
+                                        <span data-badge={badge.kind} title={badge.tip} style={{
+                                          marginLeft: 6, padding: '0 6px', borderRadius: 999, fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap', cursor: 'help',
+                                          color: badge.kind === 'winner' ? (dark ? '#34d399' : '#047857') : (dark ? '#f87171' : '#b91c1c'),
+                                          background: badge.kind === 'winner' ? (dark ? 'rgba(52,211,153,0.15)' : '#d1fae5') : (dark ? 'rgba(248,113,113,0.15)' : '#fee2e2'),
+                                        }}>{badge.kind === 'winner' ? 'winner!' : 'loser!'}</span>
+                                      )}
+                                    </span>
                                   )}
                                 </div>
                               ) : depth === 2 && (col.vtr || col.key === 'video_views') && val != null ? (
