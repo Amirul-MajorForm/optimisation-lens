@@ -1,53 +1,40 @@
-// Login for MajorView: email + password, then a signed session cookie.
+// Login for MajorView: one shared email + password, then a signed session cookie.
 //
-// Users live in the MAJORVIEW_USERS environment variable (Railway), never in
-// the code: a JSON list of { "email", "name", "password" } where "password" is
-// a salted scrypt hash made with `node backend/scripts/hash-password.js`.
-//   MAJORVIEW_USERS=[{"email":"zai@majorform.co","name":"Zai","password":"scrypt$..."}]
-// SESSION_SECRET signs the cookie (any long random string).
+// Set both in Railway (Variables):
+//   MAJORVIEW_EMAIL=team@majorform.co
+//   MAJORVIEW_PASSWORD=some-passcode
+// When either is missing, login is off and the dashboard is open as before,
+// so a deploy can never lock everyone out.
 //
-// When MAJORVIEW_USERS is not set, login is off and the dashboard is open as
-// before, so a deploy can never lock everyone out before users are added.
+// The cookie is signed with a key made from the email + password (or
+// SESSION_SECRET, if set), so changing the password logs everyone out.
 
 import crypto from 'node:crypto';
 
 const COOKIE = 'mv_session';
 const SESSION_DAYS = 30;
 
-export function hashPassword(password) {
-  const salt = crypto.randomBytes(16).toString('base64url');
-  const hash = crypto.scryptSync(String(password), salt, 32).toString('base64url');
-  return `scrypt$${salt}$${hash}`;
-}
+const login = () => {
+  const email = String(process.env.MAJORVIEW_EMAIL || '').trim();
+  const password = String(process.env.MAJORVIEW_PASSWORD || '');
+  return email && password ? { email, password } : null;
+};
+export const authEnabled = () => login() !== null;
 
-function checkPassword(password, stored) {
-  const [kind, salt, hash] = String(stored || '').split('$');
-  if (kind !== 'scrypt' || !salt || !hash) return false;
-  const got = crypto.scryptSync(String(password), salt, 32);
-  const want = Buffer.from(hash, 'base64url');
-  return got.length === want.length && crypto.timingSafeEqual(got, want);
-}
+// Compare without leaking timing (hash both sides to equal length first)
+const same = (a, b) => crypto.timingSafeEqual(
+  crypto.createHash('sha256').update(String(a)).digest(),
+  crypto.createHash('sha256').update(String(b)).digest(),
+);
 
-function loadUsers() {
-  const raw = process.env.MAJORVIEW_USERS;
-  if (!raw) return null;
-  try {
-    const list = JSON.parse(raw);
-    return Array.isArray(list) ? list.filter(u => u?.email && u?.password) : [];
-  } catch (err) {
-    console.error('[auth] MAJORVIEW_USERS is not valid JSON; nobody can log in until it is fixed');
-    return [];
-  }
-}
-export const authEnabled = () => loadUsers() !== null;
-
-// Without SESSION_SECRET, a random secret per server start (sessions end on restart)
-let fallbackSecret = null;
-const secret = () => process.env.SESSION_SECRET || (fallbackSecret ||= crypto.randomBytes(32).toString('hex'));
+const secret = () => {
+  const l = login();
+  return process.env.SESSION_SECRET || crypto.createHash('sha256').update(`majorview|${l?.email}|${l?.password}`).digest('hex');
+};
 const sign = body => crypto.createHmac('sha256', secret()).update(body).digest('base64url');
 
-function makeSession(user) {
-  const body = Buffer.from(JSON.stringify({ email: user.email, name: user.name || user.email.split('@')[0], exp: Date.now() + SESSION_DAYS * 864e5 })).toString('base64url');
+function makeSession(email) {
+  const body = Buffer.from(JSON.stringify({ email, exp: Date.now() + SESSION_DAYS * 864e5 })).toString('base64url');
   return `${body}.${sign(body)}`;
 }
 function readSession(req) {
@@ -59,10 +46,7 @@ function readSession(req) {
   if (mac.length !== want.length || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(want))) return null;
   try {
     const s = JSON.parse(Buffer.from(body, 'base64url').toString());
-    if (!(s.exp > Date.now())) return null;
-    // The user must still be in the list (removing someone ends their access)
-    const user = (loadUsers() || []).find(u => u.email.toLowerCase() === String(s.email).toLowerCase());
-    return user ? { email: user.email, name: user.name || s.name } : null;
+    return s.exp > Date.now() ? { email: s.email } : null;
   } catch { return null; }
 }
 function setCookie(req, res, value, maxAgeSec) {
@@ -81,18 +65,19 @@ const tooMany = ip => {
 
 export function installAuth(app) {
   app.post('/api/auth/login', (req, res) => {
-    const users = loadUsers();
-    if (users === null) return res.json({ user: null, authRequired: false });
+    const l = login();
+    if (!l) return res.json({ user: null, authRequired: false });
     const ip = req.ip || 'unknown';
     if (tooMany(ip)) return res.status(429).json({ error: 'Too many attempts. Try again in 15 minutes.' });
     const { email, password } = req.body || {};
-    const user = users.find(u => u.email.toLowerCase() === String(email || '').trim().toLowerCase());
-    if (!user || !checkPassword(password, user.password)) {
+    const okEmail = same(String(email || '').trim().toLowerCase(), l.email.toLowerCase());
+    const okPassword = same(password || '', l.password);
+    if (!okEmail || !okPassword) {
       attempts.get(ip).push(Date.now());
       return res.status(401).json({ error: 'Wrong email or password.' });
     }
-    setCookie(req, res, makeSession(user), SESSION_DAYS * 86400);
-    res.json({ user: { email: user.email, name: user.name || user.email.split('@')[0] }, authRequired: true });
+    setCookie(req, res, makeSession(l.email), SESSION_DAYS * 86400);
+    res.json({ user: { email: l.email }, authRequired: true });
   });
 
   app.post('/api/auth/logout', (req, res) => {

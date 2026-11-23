@@ -279,7 +279,7 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           onMouseEnter={e => { e.currentTarget.style.background = S.hover; e.currentTarget.style.color = '#b8d4ee'; }}
           onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = S.text; }}>
             <span style={{ flexShrink: 0, opacity: 0.7 }}>{ICON_LOGOUT}</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Log out{user?.name ? ` (${user.name})` : ''}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Log out</span>
           </button>
         )}
       </div>

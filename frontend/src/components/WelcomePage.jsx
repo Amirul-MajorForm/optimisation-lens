@@ -121,7 +121,6 @@ export default function WelcomePage({ user, theme, darkMode, mobile, onMenu, onO
   const pacing = useFlags('pacing');
   const performance = useFlags('performance');
   const mode = darkMode ? 'dark' : 'light';
-  const name = user?.name || 'there';
   const range = performance.data?.range;
 
   return (
@@ -136,7 +135,7 @@ export default function WelcomePage({ user, theme, darkMode, mobile, onMenu, onO
         )}
         <div style={{ fontSize: 13.5, color: theme.textMuted, marginBottom: 4 }}>{greeting()}</div>
         <h1 data-testid="welcome-greeting" style={{ margin: '0 0 8px', fontFamily: "'Space Grotesk', sans-serif", fontSize: mobile ? 30 : 40, letterSpacing: '-0.02em', minHeight: '1.2em' }}>
-          <TypedText text={`Hello, ${name}`} />
+          <TypedText text="Hello!" />
         </h1>
         <p style={{ margin: '0 0 28px', color: theme.textSecondary, fontSize: 15 }}>
           Here is what needs attention across your clients. Pick a client in the sidebar to open its dashboard.

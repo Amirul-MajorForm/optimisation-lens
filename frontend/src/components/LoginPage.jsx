@@ -40,7 +40,7 @@ export default function LoginPage({ theme, onLoggedIn }) {
           <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 18, color: theme.textPrimary }}>MajorView</span>
         </div>
         <h1 style={{ margin: '0 0 6px', fontFamily: "'Space Grotesk', sans-serif", fontSize: 22, color: theme.textPrimary }}>Sign in</h1>
-        <p style={{ margin: '0 0 22px', fontSize: 13.5, color: theme.textMuted }}>Use your MajorForm email and password.</p>
+        <p style={{ margin: '0 0 22px', fontSize: 13.5, color: theme.textMuted }}>Use the MajorView team login.</p>
 
         <label htmlFor="login-email" style={label}>Email</label>
         <input id="login-email" type="email" autoComplete="username" required autoFocus value={email} onChange={e => setEmail(e.target.value)} style={{ ...field, marginBottom: 16 }} />
