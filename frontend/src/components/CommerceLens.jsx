@@ -41,7 +41,7 @@ function makePrev(monthlyData, market, rangeStart, rangeEnd, source) {
   };
 }
 
-export default function CommerceLens({ theme, darkMode, commerce, campaigns, loading, onTrend, monthly, marketName, market, rangeStart, rangeEnd }) {
+export default function CommerceLens({ theme, darkMode, commerce, campaigns, loading, onTrend, monthly, marketName, market, rangeStart, rangeEnd, variant = 'commerce' }) {
   const prevFor = source => makePrev(monthly?.data, market, rangeStart, rangeEnd, source);
   return (
     <div>
@@ -52,20 +52,22 @@ export default function CommerceLens({ theme, darkMode, commerce, campaigns, loa
         theme={theme}
         darkMode={darkMode}
         marketName={marketName}
+        variant={variant}
       />
-      <CommerceTables theme={theme} commerce={commerce} campaigns={campaigns} loading={loading} onTrend={onTrend} prevFor={prevFor} />
+      <CommerceTables theme={theme} commerce={commerce} campaigns={campaigns} loading={loading} onTrend={onTrend} prevFor={prevFor} variant={variant} />
     </div>
   );
 }
 
-function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor }) {
+function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor, variant = 'commerce' }) {
+  const perf = variant === 'performance';
   const cpas = commerce?.cpas ?? [];
   const multiCurrency = cpas.length > 1;
   const campaignSections = CAMPAIGN_PLATFORMS.filter(p => campaigns?.[p.key]?.campaigns?.length > 0);
   const amazon = commerce?.amazon?.campaigns?.length > 0 ? commerce.amazon : null;
 
   if (loading && cpas.length === 0) {
-    return <PlatformSection platform="meta" label="Meta CPAS" data={null} theme={theme} loading variant="commerce" />;
+    return <PlatformSection platform="meta" label={perf ? 'Meta' : 'Meta CPAS'} data={null} theme={theme} loading variant={variant} />;
   }
 
   if (cpas.length === 0 && campaignSections.length === 0 && !amazon) {
@@ -79,7 +81,7 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor 
         color: theme.textMuted,
         fontSize: 14,
       }}>
-        No CPAS, Amazon, Sales, Conversion, GMV or Shopping campaigns for this market in this period
+        {perf ? 'No conversion or lead campaigns for this market in this period' : 'No CPAS, Amazon, Sales, Conversion, GMV or Shopping campaigns for this market in this period'}
       </div>
     );
   }
@@ -96,7 +98,7 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor 
           loading={loading}
           lens="commerce"
           onTrend={onTrend}
-          variant="commerce"
+          variant={variant}
           prev={prevFor('cpas')}
           prevTotalsRoasOnly={multiCurrency}
         />
@@ -109,7 +111,7 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor 
           theme={theme}
           loading={loading}
           lens="commerce"
-          variant="commerce"
+          variant={variant}
           prev={prevFor('amazon')}
         />
       )}
@@ -117,13 +119,13 @@ function CommerceTables({ theme, commerce, campaigns, loading, onTrend, prevFor 
         <PlatformSection
           key={`campaigns-${p.key}`}
           platform={p.key}
-          label={p.label}
+          label={perf ? p.label.replace('Sales & Conversion', 'Leads & Conversions').replace('Sales, Conversion & Shopping', 'Leads & Conversions') : p.label}
           data={campaigns[p.key]}
           theme={theme}
           loading={loading}
           lens="brand"
           onTrend={onTrend}
-          variant="commerce"
+          variant={variant}
           prev={prevFor(p.key)}
         />
       ))}

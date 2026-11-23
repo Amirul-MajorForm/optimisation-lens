@@ -64,7 +64,7 @@ function PacingBar({ r, theme, dark }) {
   );
 }
 
-function PacingRow({ r, link, theme, dark, asOf }) {
+function PacingRow({ r, link, theme, dark, asOf, showTab }) {
   const [open, setOpen] = useState(false);
   const [sBg, sFg] = (dark ? STATUS[r.status]?.dark : STATUS[r.status]?.light) || STATUS.other.light;
   const st = r.state ? PACE[r.state] : null;
@@ -79,11 +79,11 @@ function PacingRow({ r, link, theme, dark, asOf }) {
     }} className="pacing-row">
       <div style={{ minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 3 }}>
-          <span data-status-pill style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: sBg, color: sFg, letterSpacing: '0.02em' }}>
+          <span data-status-pill title={r.statusText && STATUS[r.status]?.label !== r.statusText ? `Sheet status: ${r.statusText}` : undefined} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 10.5, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: sBg, color: sFg, letterSpacing: '0.02em' }}>
             {r.status === 'live' && <span style={{ width: 6, height: 6, borderRadius: '50%', background: sFg }} />}
             {STATUS[r.status]?.label || r.statusText}
           </span>
-          <span style={{ fontSize: 10.5, fontWeight: 700, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{r.platformLabel || PLATFORM[r.platform]} · {r.tab}</span>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: theme.textMuted, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{r.platformLabel || PLATFORM[r.platform]}{showTab ? ` · ${r.tab}` : ''}</span>
           {r.flightOver && <span title="The sheet says this is running, but its end date has passed" style={{ fontSize: 10.5, fontWeight: 700, color: dark ? '#fbbf24' : '#a16207' }}>⚠ check status</span>}
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: theme.textPrimary, overflowWrap: 'anywhere', lineHeight: 1.35 }}>{r.campaign}</div>
@@ -133,7 +133,11 @@ export default function PacingLens({ state, links, theme, darkMode, mobile }) {
     upcoming: rows.filter(upcoming).length,
     ended: rows.filter(done).length,
   }), [rows]);
-  const markets = MARKET_ORDER.filter(m => rows.some(r => r.market === m)).concat([...new Set(rows.map(r => r.market))].filter(m => !MARKET_ORDER.includes(m)));
+  // Market order / names: the client's own (e.g. Yoga Movement SG) after the standard countries
+  const order = [...MARKET_ORDER, ...Object.keys(data?.marketNames || {})];
+  const labelOf = m => MARKET_LABEL[m] || data?.marketNames?.[m] || m.toUpperCase();
+  const markets = order.filter((m, i) => order.indexOf(m) === i && rows.some(r => r.market === m))
+    .concat([...new Set(rows.map(r => r.market))].filter(m => !order.includes(m)));
 
   const shown = rows.filter(r => VIEWS[view].test(r) && (!paceFilter || r.state === paceFilter) && (market === 'all' || r.market === market)
     && (tab === 'all' || r.tab === tab) && (!query || `${r.campaign} ${r.adName}`.toLowerCase().includes(query.toLowerCase())));
@@ -167,7 +171,7 @@ export default function PacingLens({ state, links, theme, darkMode, mobile }) {
   return (
     <div>
       <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>
-        From the MajorPace sheet (Pacing - OS Brand + Pacing - OS Ecomm) · spend as of <b style={{ color: theme.textSecondary }}>{day(asOf)}</b> ·
+        From the MajorPace sheet ({(data.tabs || []).length > 1 ? 'Pacing - OS Brand + Pacing - OS Ecomm' : 'Pacing tab'}) · spend as of <b style={{ color: theme.textSecondary }}>{day(asOf)}</b> ·
         on track = spend within {Math.round(data.onTrack.low * 100)}–{Math.round(data.onTrack.high * 100)}% of where the flight says it should be ·
         the dark tick on each bar marks where spend should be today
       </div>
@@ -190,12 +194,14 @@ export default function PacingLens({ state, links, theme, darkMode, mobile }) {
         </span>
         <span style={{ width: 1, height: 20, background: theme.border, margin: '0 4px' }} />
         <span role="group" aria-label="Market" style={{ display: 'inline-flex', gap: 6, flexWrap: 'wrap' }}>
-          {['all', ...markets].map(m => <button key={m} aria-pressed={market === m} onClick={() => setMarket(m)} style={chip(market === m)}>{m === 'all' ? 'All markets' : m.toUpperCase()}</button>)}
+          {['all', ...markets].map(m => <button key={m} aria-pressed={market === m} onClick={() => setMarket(m)} style={chip(market === m)}>{m === 'all' ? 'All markets' : MARKET_LABEL[m] ? m.toUpperCase() : labelOf(m)}</button>)}
         </span>
-        <span style={{ width: 1, height: 20, background: theme.border, margin: '0 4px' }} />
-        <span role="group" aria-label="Sheet tab" style={{ display: 'inline-flex', gap: 6 }}>
-          {['all', ...(data.tabs || [])].map(t => <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)} style={chip(tab === t)}>{t === 'all' ? 'Brand + Ecomm' : t}</button>)}
-        </span>
+        {(data.tabs || []).length > 1 && (<>
+          <span style={{ width: 1, height: 20, background: theme.border, margin: '0 4px' }} />
+          <span role="group" aria-label="Sheet tab" style={{ display: 'inline-flex', gap: 6 }}>
+            {['all', ...data.tabs].map(t => <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)} style={chip(tab === t)}>{t === 'all' ? data.tabs.join(' + ') : t}</button>)}
+          </span>
+        </>)}
         <input type="search" placeholder="Search campaigns" value={query} onChange={e => setQuery(e.target.value)} aria-label="Search campaigns"
           style={{ marginLeft: mobile ? 0 : 'auto', flex: mobile ? '1 1 100%' : '0 1 220px', border: `1px solid ${theme.border}`, borderRadius: 8, padding: '6px 10px', fontSize: 12.5, background: theme.surface, color: theme.textPrimary }} />
       </div>
@@ -206,13 +212,13 @@ export default function PacingLens({ state, links, theme, darkMode, mobile }) {
       {groups.map(([m, rs]) => (
         <div key={m} data-market-group={m} style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 14, marginBottom: 16, overflow: 'hidden' }}>
           <div style={{ padding: '10px 16px', borderBottom: `1px solid ${theme.border}`, display: 'flex', gap: 10, alignItems: 'baseline', background: theme.surfaceAlt, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif" }}>{MARKET_LABEL[m] || m.toUpperCase()}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif" }}>{labelOf(m)}</span>
             <span style={{ fontSize: 12, color: theme.textMuted }}>
               {rs.length} campaign{rs.length === 1 ? '' : 's'}
               {['over', 'under', 'ok'].map(k => { const n = rs.filter(r => r.state === k).length; return n ? ` · ${n} ${PACE[k].label.toLowerCase()}` : ''; }).join('')}
             </span>
           </div>
-          {rs.map(r => <PacingRow key={r.id} r={r} link={linkFor(r)} theme={theme} dark={darkMode} asOf={asOf} />)}
+          {rs.map(r => <PacingRow key={r.id} r={r} link={linkFor(r)} theme={theme} dark={darkMode} asOf={asOf} showTab={(data.tabs || []).length > 1} />)}
         </div>
       ))}
       {/* Phones: stack each row's three parts */}

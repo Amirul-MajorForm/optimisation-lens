@@ -27,6 +27,7 @@ export default function Header({
   dateRange, onDateRangeChange,
   customStart, customEnd, onCustomStartChange, onCustomEndChange, onApplyCustom,
   dateLabel, onRefresh, refreshing, onTopAds, topAdsOpen, mobile = false, onMenu, hideFilters = false,
+  markets = MARKETS, clientName = 'OATSIDE',
 }) {
   const sel = {
     background: theme.surface,
@@ -84,7 +85,7 @@ export default function Header({
           lineHeight: 1.2,
           whiteSpace: 'nowrap',
         }}>
-          {marketName || 'OATSIDE'}
+          {marketName || clientName}
         </div>
         <div style={{ fontSize: 12, color: theme.textMuted, marginTop: 1 }}>
           {(mobile || hideFilters) && dateLabel ? dateLabel : 'Performance Dashboard'}
@@ -98,7 +99,7 @@ export default function Header({
       {/* Market tabs */}
       <div style={{ display: 'flex', gap: 4, background: theme.surfaceAlt, borderRadius: 9, padding: 3, border: `1px solid ${theme.border}`,
         ...(mobile ? { order: 4, flex: '1 1 auto', overflowX: 'auto', minWidth: 0 } : {}) }}>
-        {MARKETS.filter(m => !m.optional || m.value === market || activeMarkets?.has(m.value)).map(m => (
+        {markets.filter(m => !m.optional || m.value === market || activeMarkets?.has(m.value)).map(m => (
           <button
             key={m.value}
             onClick={() => onMarketChange(m.value)}

@@ -1,10 +1,16 @@
+// Every request is for the selected client (see clients.js); the server
+// defaults to OATSIDE when no client is given.
+let currentClient = 'oatside';
+export const setApiClient = id => { currentClient = id; };
+const withClient = url => `${url}${url.includes('?') ? '&' : '?'}client=${encodeURIComponent(currentClient)}`;
+
 async function getJSON(path, { dateRange, startDate, endDate }, signal, extra = {}) {
   const params = new URLSearchParams({ dateRange: String(dateRange), ...extra });
   if (startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
   }
-  const res = await fetch(`${path}?${params}`, { signal });
+  const res = await fetch(withClient(`${path}?${params}`), { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -31,12 +37,12 @@ export const fetchSearch = (params, signal) => getJSON('/api/search', params, si
 
 // Pacing Lens: MajorPace sheet rows; platform links load separately (slower)
 export async function fetchPacing(signal, fresh = false) {
-  const res = await fetch(`/api/pacing${fresh ? '?fresh=1' : ''}`, { signal });
+  const res = await fetch(withClient(`/api/pacing${fresh ? '?fresh=1' : ''}`), { signal });
   if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `HTTP ${res.status}`); }
   return res.json();
 }
 export async function fetchPacingLinks(signal) {
-  const res = await fetch('/api/pacing/links', { signal });
+  const res = await fetch(withClient('/api/pacing/links'), { signal });
   if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `HTTP ${res.status}`); }
   return res.json();
 }
@@ -48,7 +54,7 @@ export const fetchTrend = (params, { campaign, platform, lens, lpv = false, rev 
 // Commerce Lens header chart: monthly totals since the start of the year,
 // independent of the date filter
 export async function fetchCommerceMonthly(signal) {
-  const res = await fetch('/api/commerce/monthly', { signal });
+  const res = await fetch(withClient('/api/commerce/monthly'), { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -58,7 +64,7 @@ export async function fetchCommerceMonthly(signal) {
 
 // Sales Lens: mega-sale periods for one market (Meta CPAS), since start of year
 export async function fetchSales(market, signal) {
-  const res = await fetch(`/api/sales?market=${encodeURIComponent(market)}`, { signal });
+  const res = await fetch(withClient(`/api/sales?market=${encodeURIComponent(market)}`), { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);

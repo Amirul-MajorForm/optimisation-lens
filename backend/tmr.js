@@ -2,96 +2,27 @@ const TMR_BASE = process.env.TMR_BASE_URL || 'https://api.twominutereports.com/v
 
 export const TEAM_ID = process.env.TMR_TEAM_ID || '019d0ca3-ce95-7387-a650-5e055605107a';
 
-// Account currency per platform, as reported by each ad account in TMR.
-// TMR returns spend/CPM/CPC in the account's own currency (no conversion).
-// All TikTok and Google accounts bill in SGD; Meta bills in local currency.
-export const MARKETS = {
-  sg: { name: 'OATSIDE SG', currency: { tiktok: 'SGD', meta: 'SGD', google: 'SGD', amazon: 'SGD' } },
-  my: { name: 'OATSIDE MY', currency: { tiktok: 'SGD', meta: 'MYR', google: 'SGD' } },
-  ph: { name: 'OATSIDE PH', currency: { tiktok: 'SGD', meta: 'PHP', google: 'SGD' } },
-  vn: { name: 'OATSIDE VN', currency: { tiktok: 'SGD', meta: 'VND', google: 'SGD' } },
-  id: { name: 'OATSIDE ID', currency: { tiktok: 'SGD', meta: 'IDR', google: 'SGD' } },
-  th: { name: 'OATSIDE TH', currency: { tiktok: 'SGD', meta: 'THB', google: 'SGD' } },
-  // Japan: Amazon only (Commerce Lens)
-  jp: { name: 'OATSIDE JP', currency: { tiktok: 'SGD', meta: 'SGD', google: 'SGD', amazon: 'JPY' } },
-};
+import { currentClient, live } from './clients.js';
 
-// Amazon Ads (Commerce Lens) marketplace profiles. Queried together; each
-// campaign's market comes from its name (JP_..., SG_...) like other platforms,
-// and its currency from MARKETS[market].currency.amazon.
-export const AMAZON_ACCOUNTS = [
-  'amazonads_1325552030347508-JP', // Amazon Japan (JPY)
-  'amazonads_1916425481164095-SG', // Amazon Singapore (SGD)
-];
+// The selected client's setup (see clients.js). These read as plain objects /
+// arrays but always reflect the client of the current request.
+export const MARKETS = live(() => currentClient().markets);
+export const ACCOUNTS = live(() => currentClient().accounts);
+export const AMAZON_ACCOUNTS = live(() => currentClient().amazon, true);
+export const CPAS_ACCOUNTS = live(() => currentClient().cpas);
+export const CPAS_MARKET = live(() => currentClient().cpasMarket);
 
-// All accounts per platform across every market (for single bulk query)
-// Brand (non-CPAS) accounts per platform and market
-export const ACCOUNTS = {
-  tiktok: {
-    sg: 'ttads_7216573742091091970',
-    my: 'ttads_7421836044171132944',
-    ph: 'ttads_7337602518762930178',
-    vn: 'ttads_7539818342035931137',
-    id: 'ttads_7558728389196365825',
-    th: 'ttads_7601715326036017169',
-  },
-  meta: {
-    sg: 'fads_act_764971328270854',
-    my: 'fads_act_480865091512259',
-    ph: 'fads_act_1073423930376728',
-    vn: 'fads_act_2540917533074538',
-    id: 'fads_act_360540913050861',
-    th: 'fads_act_392347893765489',
-  },
-  google: {
-    sg: 'gadw_3685435931',
-    vn: 'gadw_8618833919',
-  },
-};
-
-// All accounts per platform across every market (for single bulk query)
-export const ALL_ACCOUNTS = Object.fromEntries(
-  Object.entries(ACCOUNTS).map(([platform, byMarket]) => [platform, Object.values(byMarket)])
-);
-
-// Every Meta account with "CPAS" in its name, shown under Commerce Lens.
-// Grouped by billing currency so every row in one TMR request shares a currency:
-//   local: billed in the market's own Meta currency (see MARKETS[x].currency.meta)
-//   SGD:   billed in SGD even though the market is outside Singapore
-// SG Redmart and PH Lazada have never had data in TMR, so their currency is
-// unconfirmed; they are assumed to bill in local currency (SGD / PHP).
-export const CPAS_ACCOUNTS = {
-  local: [
-    'fads_act_1925389034916546', // SG Shopee (SGD)
-    'fads_act_674743694682068',  // SG Shopee - DNU (SGD, historical)
-    'fads_act_335142002450041',  // SG Redmart (assumed SGD, no data yet)
-    'fads_act_1001057058029561', // MY Shopee (MYR)
-    'fads_act_1324603498206088', // PH Shopee (PHP)
-    'fads_act_2011132199258393', // PH Lazada (assumed PHP, no data yet)
-    'fads_act_1196047278954896', // VN Shopee (VND)
-    'fads_act_343672155283730',  // ID Lazada (IDR)
-    'fads_act_1437746287146983', // ID Shopee (IDR)
-    'fads_act_292204293382312',  // ID Tokopedia (IDR)
-  ],
-  SGD: [
-    'fads_act_730983682111075',  // ID Tokopedia (SGD)
-    'fads_act_271434125229951',  // ID Tokopedia (SGD)
-    'fads_act_186600104319744',  // TH Lazada (SGD)
-    'fads_act_742104760960709',  // TH Lazada (SGD)
-    'fads_act_3517635831788796', // TH Shopee (SGD)
-  ],
-};
-
-// Market of each CPAS account (used to query only the right accounts for a chart)
-export const CPAS_MARKET = {
-  fads_act_1925389034916546: 'sg', fads_act_674743694682068: 'sg', fads_act_335142002450041: 'sg',
-  fads_act_1001057058029561: 'my',
-  fads_act_1324603498206088: 'ph', fads_act_2011132199258393: 'ph',
-  fads_act_1196047278954896: 'vn',
-  fads_act_343672155283730: 'id', fads_act_1437746287146983: 'id', fads_act_292204293382312: 'id',
-  fads_act_730983682111075: 'id', fads_act_271434125229951: 'id',
-  fads_act_186600104319744: 'th', fads_act_742104760960709: 'th', fads_act_3517635831788796: 'th',
-};
+// All accounts per platform across every market (for single bulk query),
+// plus accounts not tied to one market (e.g. a client's second account)
+const allAccountsCache = new Map();
+export const ALL_ACCOUNTS = live(() => {
+  const c = currentClient();
+  if (!allAccountsCache.has(c.id)) {
+    allAccountsCache.set(c.id, Object.fromEntries(['tiktok', 'meta', 'google'].map(platform => [platform,
+      [...new Set([...Object.values(c.accounts[platform] || {}), ...(c.extraAccounts?.[platform] || [])])]])));
+  }
+  return allAccountsCache.get(c.id);
+});
 
 // Brand-account campaigns (any platform) containing "_Sales_" or "_Conversion_"
 // belong under Commerce Lens. Case-insensitive; the underscores are required,
@@ -226,6 +157,8 @@ async function queryTMRDirect(apiKey, teamId, body, attempt = 0) {
 // e.g. "SG_TikTok_..." or "(cancelled)TH_PP-All_..." -> "sg" / "th".
 // Falls back to SG when no known code is found.
 export function detectMarket(campaignName) {
+  const custom = currentClient().detectMarket;
+  if (custom) return custom(campaignName);
   const re = /(?:^|[^A-Za-z])([A-Za-z]{2})_/g;
   let m;
   while ((m = re.exec(campaignName || '')) !== null) {
@@ -282,6 +215,9 @@ export function normalizeRow(row) {
   if (!out.cpc || out.cpc === 0) out.cpc = cl  > 0 ?  sp / cl                : null;
   out.roas = sp > 0 && out.revenue > 0 ? out.revenue / sp : null;
   out.cpa  = out.orders > 0 && sp > 0 ? sp / out.orders : null;
+  // Leads (Meta "Leads (all)"): MoveRepeat's lead campaigns
+  out.leads = parseFloat(out.lead) || 0;
+  out.cpl   = out.leads > 0 && sp > 0 ? sp / out.leads : null;
   return out;
 }
 
@@ -313,6 +249,8 @@ export function parsePlatformResult(tmrResponse) {
     engaged_view_15s:   sum('engaged_view_15s'),
     avg_watch_time:     sum('watch_plays') > 0 ? sum('watch_time_total') / sum('watch_plays') : null,
     orders:             sum('orders'),
+    leads:              sum('leads'),
+    cpl:                sum('leads') > 0 ? spendTotal / sum('leads') : null,
     revenue:            sum('revenue'),
     roas: spendTotal > 0 && sum('revenue') > 0 ? sum('revenue') / spendTotal : null,
     cpa:  sum('orders') > 0 ? spendTotal / sum('orders') : null,

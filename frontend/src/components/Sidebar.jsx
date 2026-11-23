@@ -80,7 +80,11 @@ const TABS = [
   { id: 'pacing',   label: 'Pacing Lens',   icon: ICON_PACING },
 ];
 
-export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose }) {
+import { CLIENT_LIST } from '../clients.js';
+
+export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose,
+  client = 'oatside', onClientChange, lenses, lensLabels = {} }) {
+  const tabs = TABS.filter(t => !lenses || lenses.includes(t.id)).map(t => ({ ...t, label: lensLabels[t.id] || t.label }));
   // Phones: a drawer that slides in over the page (opened from the header's menu button)
   const pick = id => { onTabChange(id); if (mobile) onClose?.(); };
   return (
@@ -133,6 +137,24 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
         </span>
       </div>
 
+      {/* Client switcher (OATSIDE by default) */}
+      {onClientChange && (
+        <div style={{ padding: '14px 12px 4px' }}>
+          <label htmlFor="client-switcher" style={{ display: 'block', fontSize: 10, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: S.label, padding: '0 8px', marginBottom: 6, fontFamily: "'Space Grotesk', sans-serif" }}>
+            Client
+          </label>
+          <select id="client-switcher" value={client} onChange={e => { onClientChange(e.target.value); if (mobile) onClose?.(); }}
+            style={{
+              width: '100%', padding: '9px 30px 9px 12px', borderRadius: 9, border: `1px solid ${S.border}`, background: S.active, color: S.textActive,
+              fontSize: 13.5, fontWeight: 600, fontFamily: "'DM Sans', sans-serif", cursor: 'pointer', appearance: 'none', WebkitAppearance: 'none',
+              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2393c5fd' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+              backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
+            }}>
+            {CLIENT_LIST.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Navigation */}
       <div style={{ flex: 1, padding: '20px 12px', overflowY: 'auto' }}>
         <div style={{
@@ -148,7 +170,7 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           Main Menu
         </div>
 
-        {TABS.map(tab => {
+        {tabs.map(tab => {
           const isActive = activeTab === tab.id;
           return (
             <button

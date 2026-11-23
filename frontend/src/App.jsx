@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch, fetchPacing, fetchPacingLinks } from './api.js';
+import { CLIENTS, initialClient, rememberClient } from './clients.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch, fetchPacing, fetchPacingLinks, setApiClient } from './api.js';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable, { DrillContext, GoalModelContext, StatusContext } from './components/CampaignTable.jsx';
@@ -16,9 +17,20 @@ import { useIsMobile } from './useViewport.js';
 
 const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.markets || {}));
 
+// Client switcher: the dashboard below remounts for each client (its own data,
+// markets and lenses); the server caches each client separately, so switching
+// back is quick.
 export default function App() {
+  const [client, setClient] = useState(initialClient);
   const [darkMode, setDarkMode] = useState(false);
-  const [market, setMarket] = useState('sg');
+  setApiClient(client);
+  const changeClient = id => { setApiClient(id); rememberClient(id); setClient(id); };
+  return <Dashboard key={client} client={client} onClientChange={changeClient} darkMode={darkMode} setDarkMode={setDarkMode} />;
+}
+
+function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) {
+  const client = CLIENTS[clientId];
+  const [market, setMarket] = useState(client.markets[0].value);
   const [dateRange, setDateRange] = useState('7');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -308,6 +320,10 @@ export default function App() {
       `}</style>
 
       <Sidebar
+        client={clientId}
+        onClientChange={onClientChange}
+        lenses={client.lenses}
+        lensLabels={client.lensLabels}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         darkMode={darkMode}
@@ -332,13 +348,13 @@ export default function App() {
             : hasBrand(data?.markets?.[code]))
         );
         // Commerce Lens always offers Indonesia (Meta CPAS) and Japan (Amazon)
-        if (activeTab === 'commerce') { activeMarkets.add('id'); activeMarkets.add('jp'); }
+        if (activeTab === 'commerce' && clientId === 'oatside') { activeMarkets.add('id'); activeMarkets.add('jp'); }
         // Search Lens: markets with Google Search or Amazon search data
         if (activeTab === 'search') {
           activeMarkets.clear();
           const sd = searchByRange[searchKey]?.data;
           for (const r of [...(sd?.google.searchTerms || []), ...(sd?.google.keywords || []), ...(sd?.amazon.searchTerms || [])]) activeMarkets.add(r.market);
-          activeMarkets.add('jp');
+          if (clientId === 'oatside') activeMarkets.add('jp');
         }
         const isCommerce = activeTab === 'commerce';
         const shownError = isCommerce ? (commerceError || error) : error;
@@ -349,7 +365,7 @@ export default function App() {
               darkMode={darkMode}
               market={market}
               onMarketChange={handleMarketChange}
-              marketName={activeTab === 'pacing' ? 'OATSIDE · All markets' : marketName}
+              marketName={activeTab === 'pacing' ? `${client.name} · All markets` : marketName}
               activeMarkets={activeMarkets}
               dateRange={dateRange}
               onDateRangeChange={handleDateRangeChange}
@@ -361,7 +377,9 @@ export default function App() {
               dateLabel={activeTab === 'pacing' ? (pacing?.data?.pacingDate ? `Spend as of ${new Date(`${pacing.data.pacingDate}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}` : '') : dateLabel}
               onRefresh={handleRefresh}
               refreshing={isCommerce ? (loading || commerceLoading) : loading}
-              onTopAds={activeTab === 'sales' || activeTab === 'search' || activeTab === 'pacing' ? null : () => setTopAdsOpen(o => !o)}
+              onTopAds={activeTab === 'sales' || activeTab === 'search' || activeTab === 'pacing' || (activeTab === 'commerce' && !client.topAdsOnCommerce) ? null : () => setTopAdsOpen(o => !o)}
+              markets={client.markets}
+              clientName={client.name}
               hideFilters={activeTab === 'pacing'}
               topAdsOpen={topAdsOpen && activeTab !== 'sales' && activeTab !== 'search' && activeTab !== 'pacing'}
               mobile={mobile}
@@ -415,6 +433,8 @@ export default function App() {
 
               {isCommerce && (
                 <CommerceLens
+                  variant={client.commerceVariant}
+                  clientName={client.name}
                   theme={theme}
                   commerce={commerceData?.markets?.[market]}
                   campaigns={marketData?.commerceCampaigns}

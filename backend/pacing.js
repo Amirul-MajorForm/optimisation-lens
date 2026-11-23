@@ -7,11 +7,9 @@
 // own percentages instead of recomputing them, and shows the money as written.
 
 import { fetchTab, parseMoney, parseSheetDate } from './goals.js';
+import { currentClient } from './clients.js';
 
-export const PACING_TABS = {
-  Brand: process.env.PACING_BRAND_GID || '116061889', // "Pacing - OS Brand"
-  Ecomm: process.env.PACING_ECOMM_GID || '46516630',  // "Pacing - OS Ecomm"
-};
+// Tabs to read come from the selected client (clients.js: pacingTabs)
 
 // Overall pacing (spend pacing / time pacing) within this band counts as on track
 export const ON_TRACK = { low: 0.9, high: 1.1 };
@@ -68,7 +66,10 @@ export function parsePacingTab(rows, tab) {
     // Budget: "Budget" (Brand tab); Ecomm has "Briefed Budget" + "SGD Budget" (the one pacing uses)
     const budgetText = get(r, 'Budget') || get(r, 'SGD Budget') || get(r, 'Briefed Budget');
     const spendText = get(r, 'Spend to Date');
-    const status = statusOf(get(r, 'Status'));
+    let status = statusOf(get(r, 'Status'));
+    const startD = parseSheetDate(get(r, 'Start Date')), endD = parseSheetDate(get(r, 'End Date')), pdD = parseSheetDate(get(r, 'Pacing Date'));
+    // Paused with its flight already over: finished, not "running" (keeps pacing counts honest)
+    if (status === 'paused' && endD && pdD && endD < pdD) status = 'ended';
     const timePacing = pct(get(r, 'Time Pacing')), spendPacing = pct(get(r, 'Spend Pacing')), overall = pct(get(r, 'Overall Pacing'));
     const running = status === 'live' || status === 'paused';
     const budget = parseMoney(budgetText), spend = parseMoney(spendText);
@@ -85,7 +86,10 @@ export function parsePacingTab(rows, tab) {
       adName: get(r, 'Ad Name'),
       platformLabel: get(r, 'Platform'),
       platform: platformOf(get(r, 'Platform')),
-      market: MARKETS[get(r, 'Market').toLowerCase()] || get(r, 'Market').toLowerCase().slice(0, 2),
+      market: currentClient().detectMarket
+        ? currentClient().detectMarket(`${campaign} ${get(r, 'Brand')} ${get(r, 'Market')}`)
+        : MARKETS[get(r, 'Market').toLowerCase()] || get(r, 'Market').toLowerCase().slice(0, 2),
+      brand: get(r, 'Brand'),
       marketName: get(r, 'Market'),
       model: get(r, 'Model'),
       budgetText: budgetText && budgetText !== '-' ? budgetText : '',
@@ -106,9 +110,15 @@ export function parsePacingTab(rows, tab) {
 }
 
 export async function loadPacing() {
-  const tabs = await Promise.all(Object.entries(PACING_TABS).map(async ([tab, gid]) => ({ tab, ...parsePacingTab(await fetchTab(gid), tab) })));
+  const client = currentClient();
+  const tabs = await Promise.all(Object.entries(client.pacingTabs).map(async ([tab, gid]) => {
+    const parsed = parsePacingTab(await fetchTab(gid), tab);
+    // Shared tabs: keep only this client's rows
+    return { tab, ...parsed, rows: client.pacingRow ? parsed.rows.filter(client.pacingRow) : parsed.rows };
+  }));
   const pacingDate = tabs.map(t => t.pacingDate).filter(Boolean).sort().pop() || null;
-  return { rows: tabs.flatMap(t => t.rows), pacingDate, onTrack: ON_TRACK, tabs: Object.keys(PACING_TABS) };
+  const marketNames = Object.fromEntries(Object.entries(client.markets).map(([k, m]) => [k, m.name]));
+  return { rows: tabs.flatMap(t => t.rows), pacingDate, onTrack: ON_TRACK, tabs: Object.keys(client.pacingTabs), marketNames };
 }
 
 // Link to the campaign in its ad platform, from the IDs TMR returns

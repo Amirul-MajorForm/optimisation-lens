@@ -101,7 +101,7 @@ function MiniChart({ title, total, months, values, kind, format, axisFormat, hov
   );
 }
 
-export default function CommerceTrend({ data, loading, error, theme, darkMode, marketName }) {
+export default function CommerceTrend({ data, loading, error, theme, darkMode, marketName, variant = 'commerce' }) {
   const [hover, setHover] = useState(null);
   const [expanded, setExpanded] = useState(true);
   const months = data?.months || [];
@@ -137,7 +137,7 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
     <div style={{ background: theme.surfaceAlt, border: `1px solid ${theme.border}`, borderRadius: 14, marginBottom: 20, overflow: 'hidden' }}>
       <div onClick={() => setExpanded(e => !e)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 20px', cursor: 'pointer', userSelect: 'none', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif" }}>
-          {marketName ? `${marketName} · ` : ''}Commerce by month
+          {marketName ? `${marketName} · ` : ''}{variant === 'performance' ? 'Conversions by month' : 'Commerce by month'}
         </span>
         <span style={{ fontSize: 13, color: theme.textMuted }}>
           {`${months.length ? `${monthLabel(months[0], false)} – today · ` : ''}${picked.size ? active.map(k => PLATFORM_LABEL[k]).join(' + ') : 'all platforms'} · SGD · not affected by the date filter`}
@@ -184,7 +184,7 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
                 <MiniChart title="Spend" total={fmtSgd(totSpend)} months={months} values={series.map(m => m.spend)} kind="bar"
                   format={fmtSgd} axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : Math.round(v))}
                   hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} currentMonth={currentMonth} />
-                <MiniChart title="Orders" total={fmtNum(totOrders)} months={months} values={series.map(m => m.orders)} kind="bar"
+                <MiniChart title={variant === 'performance' ? 'Conversions' : 'Orders'} total={fmtNum(totOrders)} months={months} values={series.map(m => m.orders)} kind="bar"
                   format={fmtNum} axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : Math.round(v))}
                   hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} currentMonth={currentMonth} />
                 <MiniChart title="ROAS" total={fmtRoas(totSpend > 0 && totRevenue > 0 ? totRevenue / totSpend : null)} months={months}

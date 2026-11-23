@@ -8,6 +8,7 @@ import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { normalizeRow } from './tmr.js';
 import { groupSales } from './sales.js';
 import { loadPacing, platformLink } from './pacing.js';
+import { currentClient, runWithClient } from './clients.js';
 import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, AMAZON_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -28,6 +29,7 @@ function getCached(key) {
 
 // Cache results for CACHE_TTL and share one in-flight fetch between callers
 async function cached(key, fetchFn, ttl = CACHE_TTL) {
+  key = `${currentClient().id}:${key}`; // clients never share cached data
   const hit = getCached(key);
   if (hit?.data)    return hit.data;
   if (hit?.promise) return hit.promise;
@@ -139,6 +141,7 @@ function chunkRange({ startDate, endDate }) {
 }
 
 async function makeQuery(accounts, metrics, dateRange, opts = {}) {
+  if (!accounts?.length) return { data: [] }; // e.g. a client with no TikTok / Amazon / CPAS
   const chunks = opts.chunk === false ? [dateRange] : chunkRange(dateRange);
   if (chunks.length === 1) return makeQuerySplit(accounts, metrics, dateRange, opts);
   const parts = [];
@@ -202,7 +205,7 @@ async function makeQuerySplit(accounts, metrics, dateRange, opts = {}) {
 // fetched alongside it to re-weight it when rows are combined
 const META_METRICS   = ['amount_spent', 'impressions', 'clicks', 'fads_reach', 'fads_video_views', 'fads_website_fb_landing_page_views',
                         'fads_all_purchases', 'fads_purchase_conversions_all', 'fads_video_thruplay_watched_actions',
-                        'fads_video_play_actions', 'fads_video_average_watch_time'];
+                        'fads_video_play_actions', 'fads_video_average_watch_time', 'fads_lead'];
 // Views campaigns: Meta 3s views (video_views) + ThruPlays; TikTok 6s views + 15s focused views
 const TIKTOK_METRICS = ['amount_spent', 'impressions', 'clicks', 'ttads_video_play_actions', 'ttads_reach', 'ttads_total_landing_page_view',
                         'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue', 'ttads_video_watched_6s', 'ttads_engaged_view_15s', 'ttads_average_video_play'];
@@ -234,6 +237,8 @@ function requireKey(res) {
 
 app.use(cors());
 app.use(express.json());
+// Every API request runs for one client (?client=..., default OATSIDE)
+app.use('/api', (req, _res, next) => runWithClient(String(req.query.client || ''), next));
 
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
@@ -642,7 +647,7 @@ app.get('/api/search', async (req, res) => {
 const PACING_TTL = 10 * 60 * 1000;
 app.get('/api/pacing', async (req, res) => {
   try {
-    if (req.query.fresh === '1') dashCache.delete('pacing_sheet');
+    if (req.query.fresh === '1') dashCache.delete(`${currentClient().id}:pacing_sheet`);
     res.json(await cached('pacing_sheet', loadPacing, PACING_TTL));
   } catch (err) {
     console.error('[pacing error]', err.message);

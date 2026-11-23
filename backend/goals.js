@@ -8,6 +8,8 @@ const PUB_BASE = (process.env.GOALS_SHEET_PUB_URL ||
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRz1wA-dlSOyHizgbiCM2_aQvh128aoEXHFJJKTbq5YFaOVMOQnwgir254-jN1sniUIUeB5C_8lMSZl/pub'
 ).replace(/\?.*$/, '').replace(/\/pub(html)?$/, '');
 
+import { currentClient } from './clients.js';
+
 export const GOAL_TABS = {
   brand: process.env.GOALS_BRAND_GID || '116061889', // "Pacing - OS Brand"
   fx:    process.env.GOALS_FX_GID    || '370653067', // "FOREX"
@@ -168,9 +170,11 @@ export function findHiddenRows(rows) {
   return ranges;
 }
 
+// Goals tab of the selected client (none yet for some clients: FX only)
 export async function loadGoalSheet() {
-  const [brandRows, fxRows] = await Promise.all([fetchTab(GOAL_TABS.brand), fetchTab(GOAL_TABS.fx)]);
-  return { goals: parseGoalRows(brandRows), fx: parseFx(fxRows), hiddenRows: findHiddenRows(brandRows) };
+  const goalsTab = currentClient().goalsTab;
+  const [brandRows, fxRows] = await Promise.all([goalsTab ? fetchTab(goalsTab) : [], fetchTab(GOAL_TABS.fx)]);
+  return { goals: goalsTab ? parseGoalRows(brandRows) : [], fx: parseFx(fxRows), hiddenRows: goalsTab ? findHiddenRows(brandRows) : [] };
 }
 
 // ---------------------------------------------------------------- scoring

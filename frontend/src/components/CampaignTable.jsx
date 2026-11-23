@@ -52,6 +52,28 @@ const COMMERCE_COLUMNS = [
   { key: 'cpm',           label: 'CPM',      align: 'right', format: 'currency' },
 ];
 
+// Performance Lens (e.g. MoveRepeat): lead and conversion campaigns
+const PERFORMANCE_COLUMNS = [
+  { key: 'campaign_name', label: 'Campaign', align: 'left',  grow: true, format: null },
+  { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 120, title: 'Small label: daily average spend vs the previous month' },
+  { key: 'leads',         label: 'Leads',    align: 'right', format: 'number', title: 'Meta leads (all: forms, messenger and website)' },
+  { key: 'cpl',           label: 'CPL',      align: 'right', format: 'currency', title: 'Cost per lead = spend / leads' },
+  { key: 'orders',        label: 'Conv.',    align: 'right', format: 'number', title: 'Conversions: Meta purchases, Google conversions. Small label: daily average vs the previous month' },
+  { key: 'cpa',           label: 'CPA',      align: 'right', format: 'currency', title: 'Cost per conversion = spend / conversions' },
+  { key: 'revenue',       label: 'Conv. value', align: 'right', format: 'currency', width: 110, title: 'Conversion value reported by the platform' },
+  { key: 'impressions',   label: 'Impr.',    align: 'right', format: 'compact' },
+  { key: 'ctr',           label: 'CTR',      align: 'right', format: 'percent' },
+  { key: 'cpm',           label: 'CPM',      align: 'right', format: 'currency' },
+];
+const PERFORMANCE_KPIS = [
+  { key: 'spend',   label: 'Spend',       format: 'currency' },
+  { key: 'leads',   label: 'Leads',       format: 'number' },
+  { key: 'cpl',     label: 'CPL',         format: 'currency' },
+  { key: 'orders',  label: 'Conversions', format: 'number' },
+  { key: 'cpa',     label: 'CPA',         format: 'currency' },
+  { key: 'cpm',     label: 'CPM',         format: 'currency' },
+];
+
 const COMMERCE_KPIS = [
   { key: 'spend',   label: 'Spend',   format: 'currency' },
   { key: 'revenue', label: 'Revenue', format: 'currency' },
@@ -87,19 +109,20 @@ export const GoalModelContext = createContext(null);
 export const StatusContext = createContext(null);
 const fmtDay = iso => new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 const MODEL_COLUMN = {
-  CPLV: () => 'cplv', CPM: () => 'cpm', CPC: () => 'cpc', CTR: () => 'ctr', CPA: () => 'cpa', ROAS: () => 'roas', ROI: () => 'roas',
+  CPLV: () => 'cplv', CPL: () => 'cpl', CPM: () => 'cpm', CPC: () => 'cpc', CTR: () => 'ctr', CPA: () => 'cpa', ROAS: () => 'roas', ROI: () => 'roas',
   CPV: platform => ({ tiktok: 'views_short', meta: 'views_15s' }[platform] || null),
 };
 const MODEL_LABEL = { views_short: { tiktok: '6s views' }, views_15s: { meta: 'ThruPlays' } };
 function goalModelOf(name, goalModels, variant) {
   const fromSheet = goalModels?.get((name || '').trim().toLowerCase());
   if (fromSheet && MODEL_COLUMN[fromSheet]) return { model: fromSheet, source: 'goal sheet' };
-  const token = (name || '').match(/(?:^|_)(CPLV|CPV|CPM|CPC|CTR|CPA|ROAS|ROI)(?=_|$)/i);
+  const token = (name || '').match(/(?:^|_)(CPLV|CPL|CPV|CPM|CPC|CTR|CPA|ROAS|ROI)(?=_|$)/i);
   if (token) return { model: token[1].toUpperCase(), source: 'campaign name' };
   if (/_traffic(_|$)/i.test(name || '')) return { model: 'CPLV', source: 'campaign objective' };
   if (/_views(_|$)/i.test(name || '')) return { model: 'CPV', source: 'campaign objective' };
   if (/_reach(_|$)/i.test(name || '')) return { model: 'CPM', source: 'campaign objective' };
   if (variant === 'commerce') return { model: 'ROAS', source: 'Commerce Lens default' };
+  if (variant === 'performance') return { model: 'CPA', source: 'Performance Lens default' };
   return null;
 }
 function goalCellOf(row, platform, goalModels, variant) {
@@ -439,7 +462,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   }, [groupBy]);
 
   const config = PLATFORM_CONFIG[platform];
-  const columns = variant === 'commerce' ? COMMERCE_COLUMNS : COLUMNS;
+  const columns = variant === 'commerce' ? COMMERCE_COLUMNS : variant === 'performance' ? PERFORMANCE_COLUMNS : COLUMNS;
   if (!config) return null;
 
   const { campaigns = [], total = {}, currency = 'SGD' } = data || {};
@@ -623,7 +646,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
       {expanded && (
         <>
           <KPIRow
-            kpis={variant === 'commerce' ? COMMERCE_KPIS : config.kpis.filter(k => !k.optional || kpiTotal[k.key] != null)}
+            kpis={variant === 'commerce' ? COMMERCE_KPIS : variant === 'performance' ? PERFORMANCE_KPIS : config.kpis.filter(k => !k.optional || kpiTotal[k.key] != null)}
             total={kpiTotal}
             theme={theme}
             currency={currency}
@@ -804,7 +827,7 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
                     })
                 }
               </tbody>
-              {variant === 'commerce' && !loading && sorted.length > 0 && (
+              {(variant === 'commerce' || variant === 'performance') && !loading && sorted.length > 0 && (
                 <tfoot>
                   <tr>
                     {columns.map(col => {
