@@ -38,7 +38,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState('brand');
+  const [activeTab, setActiveTab] = useState(client.lenses[0]);
   // Campaign trend chart: { campaign, platform, lens, currency } of the campaign being viewed
   const [trendTarget, setTrendTarget] = useState(null);
   const closeTrend = useCallback(() => setTrendTarget(null), []);
@@ -324,6 +324,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) 
         onClientChange={onClientChange}
         lenses={client.lenses}
         lensLabels={client.lensLabels}
+        colors={client.sidebar}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         darkMode={darkMode}

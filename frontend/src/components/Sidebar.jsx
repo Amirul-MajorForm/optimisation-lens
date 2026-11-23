@@ -1,5 +1,5 @@
 // Sidebar colors are always dark-navy regardless of light/dark mode
-const S = {
+const DEFAULT_COLORS = {
   bg: '#0d1f35',
   hover: '#152a42',
   active: '#1d3659',
@@ -83,7 +83,8 @@ const TABS = [
 import { CLIENT_LIST } from '../clients.js';
 
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose,
-  client = 'oatside', onClientChange, lenses, lensLabels = {} }) {
+  client = 'oatside', onClientChange, lenses, lensLabels = {}, colors }) {
+  const S = { ...DEFAULT_COLORS, ...(colors || {}) }; // per-client sidebar colours
   const tabs = TABS.filter(t => !lenses || lenses.includes(t.id)).map(t => ({ ...t, label: lensLabels[t.id] || t.label }));
   // Phones: a drawer that slides in over the page (opened from the header's menu button)
   const pick = id => { onTabChange(id); if (mobile) onClose?.(); };

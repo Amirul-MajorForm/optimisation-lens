@@ -137,6 +137,11 @@ const MOVEREPEAT = {
   // conversion action. Google's primary "Conversions" also include
   // "Purchase (/classes/purchase)", a purchase page view (~90% of the total).
   googleConversionAction: /purchase-success/i,
+  // Meta: Yoga Movement's Sales campaign optimises for the "Sign up start"
+  // custom conversion (page view of /classes/purchase-preview). TMR has no field
+  // for custom conversions, so its count comes from Meta "Results", kept only
+  // where the ad set's result type is that conversion.
+  metaResultsConversion: { campaign: /yoga movement.*_sales_/i, indicator: /offsite_conversion\.custom\.1446766396398366/ },
   goalsTab: null, // no goals yet: the "Pacing" tab has no Goal / Model columns
   pacingTabs: { MoveRepeat: process.env.MOVEREPEAT_PACING_GID || '0' }, // "Pacing" (shared with other clients)
   // Keep only MoveRepeat's rows of the shared "Pacing" tab
@@ -150,7 +155,24 @@ const MOVEREPEAT = {
   },
 };
 
-export const CLIENTS = { oatside: OATSIDE, moverepeat: MOVEREPEAT };
+// ---------------------------------------------------------------- Blackmores
+// TikTok GMV Max (Product + LIVE) only, Singapore, SGD
+const BLACKMORES = {
+  id: 'blackmores',
+  name: 'Blackmores',
+  markets: { sg: { name: 'Blackmores SG', currency: SGD_ALL } },
+  accounts: { tiktok: { sg: 'ttads_7644901113111871496' }, meta: {}, google: {} },
+  extraAccounts: {},
+  amazon: [],
+  cpas: { local: [], SGD: [] },
+  cpasMarket: {},
+  goalsTab: null,
+  pacingTabs: { Blackmores: process.env.BLACKMORES_PACING_GID || '0' }, // "Pacing" (shared)
+  pacingRow: r => /blackmores/i.test(`${r.brand} ${r.campaign}`),
+  detectMarket: () => 'sg',
+};
+
+export const CLIENTS = { oatside: OATSIDE, moverepeat: MOVEREPEAT, blackmores: BLACKMORES };
 export const DEFAULT_CLIENT = 'oatside';
 
 // ---------------------------------------------------------------- request context

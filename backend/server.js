@@ -89,7 +89,7 @@ const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name
   // Search Lens
   'gadw_search_term_view_search_term', 'gadw_segments_keyword_info_text', 'gadw_segments_keyword_info_match_type',
   'gadw_ad_group_criterion_keyword_text', 'gadw_ad_group_criterion_match_type', 'gadw_ad_group_criterion_quality_info_quality_score',
-  'amazonads_search_term', 'gadw_segments_conversion_action_name'];
+  'amazonads_search_term', 'gadw_segments_conversion_action_name', 'fads_result_values_performance_indicator'];
 const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
 const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions',
   gadw_metrics_search_impression_share: 'impressions' };
@@ -265,6 +265,29 @@ async function applyGoogleConversionAction(raw, range, opts = {}) {
   return { ...raw, data: raw.data.map(r => { const a = by.get(key(r)) || { c: 0, v: 0 }; return { ...r, conversions: a.c, gadw_metrics_conversions_value: a.v }; }) };
 }
 
+// Some clients count a Meta custom conversion that TMR cannot return by name
+// (MoveRepeat: Yoga Movement "Sign up start"). Meta "Results" counts each ad
+// set's optimisation event, so the rows get a `signup_start` count from Results
+// where the result type is that conversion (one extra request). On any failure
+// the rows are left as they were.
+async function applyMetaResultsConversion(raw, range, opts = {}) {
+  const rule = currentClient().metaResultsConversion;
+  if (!rule || !(raw?.data || []).some(r => rule.campaign.test(r.campaign_name || ''))) return raw;
+  const dims = opts.dimensions || ['campaign_name'];
+  let resRaw;
+  try {
+    resRaw = await makeQuery(ALL_ACCOUNTS.meta, ['fads_results'], range, { ...opts, dimensions: [...dims, 'fads_result_values_performance_indicator'] });
+  } catch (err) { console.warn('[meta results]', err.message); return raw; }
+  const key = r => dims.map(d => r[d] ?? r[d.replace(/^(ttads|fads|gadw|amazonads)_/, '')] ?? '').join('|');
+  const by = new Map();
+  for (const r of resRaw?.data || []) {
+    const indicator = String(r.fads_result_values_performance_indicator ?? r.result_values_performance_indicator ?? '');
+    if (!rule.campaign.test(r.campaign_name || '') || !rule.indicator.test(indicator)) continue;
+    by.set(key(r), (by.get(key(r)) || 0) + (parseFloat(r.fads_results ?? r.results) || 0));
+  }
+  return { ...raw, data: raw.data.map(r => (rule.campaign.test(r.campaign_name || '') ? { ...r, fads_signup_start: by.get(key(r)) || 0 } : r)) };
+}
+
 // Brand Lens: non-CPAS accounts. Campaigns containing "_Sales_" or "_Conversion_"
 // are split out into `commerceCampaigns` so Commerce Lens can show them
 // without another TMR request.
@@ -274,7 +297,7 @@ function fetchBrand(dateRangeObj, ttl = CACHE_TTL) {
   return cached(`brand_${dateRangeObj.startDate}_${dateRangeObj.endDate}`, async () => {
     // 3 requests total — one per platform, all markets combined (queued in tmr.js)
     const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, TIKTOK_METRICS, dateRangeObj);
-    const metaRaw   = await makeQuery(ALL_ACCOUNTS.meta, META_METRICS, dateRangeObj);
+    const metaRaw   = await applyMetaResultsConversion(await makeQuery(ALL_ACCOUNTS.meta, META_METRICS, dateRangeObj), dateRangeObj);
     const googleRaw = await applyGoogleConversionAction(await makeQuery(ALL_ACCOUNTS.google, GOOGLE_METRICS, dateRangeObj), dateRangeObj);
 
     // Split each platform's rows into per-market buckets
@@ -456,6 +479,7 @@ app.get('/api/drill', async (req, res) => {
       let raw = own.length ? await makeQuery(own, metrics, range, opts) : null;
       if (!hasRows(raw) && others.length) raw = await makeQuery(others, metrics, range, opts);
       if (platform === 'google') raw = await applyGoogleConversionAction(raw, range, opts);
+      if (platform === 'meta') raw = await applyMetaResultsConversion(raw, range, opts);
       const rows = (raw?.data || []).map(row => {
         const r = normalizeRow(row);
         const adsetName = r.adset_name ?? r.adgroup_name ?? r.ad_group_name
@@ -901,6 +925,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
         try { raw = await withTimeout(makeQuery(src.accounts, src.metrics, range, { ...opts, ...(src.key === 'amazon' ? { split: false } : {}) }), 75000, src.key); }
         catch (err) { errors.push(`${src.key}: ${err.message}`); console.error('[commerce monthly]', src.key, err.message); continue; }
         if (src.key === 'google') raw = await applyGoogleConversionAction(raw, range, opts).catch(() => raw);
+        if (src.key === 'meta') raw = await applyMetaResultsConversion(raw, range, opts);
         for (const row of raw?.data || []) {
           const r = normalizeRow(row);
           if (src.commerceOnly && !isCommerceRow(r)) continue;

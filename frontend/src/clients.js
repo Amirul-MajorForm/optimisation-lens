@@ -20,6 +20,8 @@ export const CLIENTS = {
     ],
     commerceVariant: 'commerce', // Commerce Lens columns: revenue / ROAS / orders
     topAdsOnCommerce: true,      // Top ads on Commerce Lens (Meta CPAS ads)
+    // Sidebar colours, so it is obvious which client is open: navy
+    sidebar: { bg: '#0d1f35', hover: '#152a42', active: '#1d3659', border: '#1a3050', text: '#7099be', label: '#3d6080', accent: '#3b82f6' },
   },
   moverepeat: {
     id: 'moverepeat',
@@ -37,6 +39,20 @@ export const CLIENTS = {
     // Yoga Movement counts conversions (Google: purchase success) + CPA
     performanceTopline: { 'strong-sg': 'leads' },
     topAdsOnCommerce: false,
+    // plum
+    sidebar: { bg: '#23123a', hover: '#2e1a4b', active: '#3c2461', border: '#33204e', text: '#b39ad6', label: '#7a5ea3', accent: '#a78bfa' },
+  },
+  blackmores: {
+    id: 'blackmores',
+    name: 'Blackmores',
+    // TikTok GMV Max only: Commerce (GMV campaigns), Sales (mega-sale days), Pacing
+    lenses: ['commerce', 'sales', 'pacing'],
+    lensLabels: {},
+    markets: [{ value: 'sg', label: 'SG' }],
+    commerceVariant: 'commerce',
+    topAdsOnCommerce: false,
+    // deep green
+    sidebar: { bg: '#0f2618', hover: '#163423', active: '#1f4630', border: '#1b3a27', text: '#86b89a', label: '#4b7d5e', accent: '#34d399' },
   },
 };
 export const DEFAULT_CLIENT = 'oatside';

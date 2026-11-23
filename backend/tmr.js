@@ -190,7 +190,8 @@ export function normalizeRow(row) {
   if (!(parseFloat(out.spend) > 0) && parseFloat(out.cost) > 0) out.spend = out.cost;
   // One orders / revenue field across sources (first one with data wins)
   const firstNum = keys => { for (const k of keys) { const n = parseFloat(out[k]); if (n > 0) return n; } return 0; };
-  out.orders  = firstNum(['gmv_orders', 'collab_action_omni_purchase', 'all_purchases', 'conversions', 'metrics_conversions', 'total_purchases']);
+  // signup_start: MoveRepeat's Meta "Sign up start" (from Meta Results, see server.js)
+  out.orders  = firstNum(['signup_start', 'gmv_orders', 'collab_action_omni_purchase', 'all_purchases', 'conversions', 'metrics_conversions', 'total_purchases']);
   out.revenue = firstNum(['gmv_gross_revenue', 'collab_ads_value_omni_purchase', 'purchase_conversions_all', 'metrics_conversions_value', 'total_sales']);
   // One landing-page-view field across platforms (TikTok / Meta name it differently)
   if (out.landing_page_views == null) out.landing_page_views = out.total_landing_page_view ?? out.website_fb_landing_page_views;
