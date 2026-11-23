@@ -736,6 +736,76 @@ app.get('/api/flags', async (_req, res) => {
   res.json({ flags: flags.slice(0, 5), total: flags.length, notes });
 });
 
+// Welcome page, Performance flags: each campaign's main KPI over the last 7
+// days vs the 7 days before, across every client; the 5 that got worst.
+// Uses the same brand + performance data as the dashboard (so the 7-day view
+// is warm when someone then opens a client); cached 30 minutes.
+const PERF_FLAG_TTL = 30 * 60 * 1000;
+// KPI from the buying type / objective in the campaign name (as the tables do)
+function kpiOf(name, platform, commerce, row) {
+  const token = (name.match(/(?:^|_)(CPLV|CPL|CPV|CPM|CPC|CTR|CPA|ROAS|ROI)(?=_|$)/i)?.[1] || '').toUpperCase();
+  let m = token === 'ROI' ? 'ROAS' : token;
+  if (!m) {
+    if (/_traffic(_|$)/i.test(name)) m = 'CPLV';
+    else if (/_views(_|$)/i.test(name)) m = 'CPV';
+    else if (/_reach(_|$)/i.test(name)) m = 'CPM';
+    else if (commerce) m = row.revenue > 0 ? 'ROAS' : row.leads > 0 ? 'CPL' : 'CPA';
+    else return null;
+  }
+  if (m === 'CPA' && !(row.orders > 0) && row.leads > 0) m = 'CPL';
+  const views = platform === 'tiktok' ? 'video_watched_6s' : platform === 'meta' ? 'video_thruplay_watched_actions' : 'video_views';
+  const per = { CPLV: 'landing_page_views', CPL: 'leads', CPA: 'orders', CPC: 'clicks', CPV: views }[m];
+  if (per) return { metric: m, cost: true, events: r => parseFloat(r[per]) || 0, value: r => { const e = parseFloat(r[per]) || 0; return e > 0 ? (parseFloat(r.spend) || 0) / e : null; } };
+  if (m === 'CPM') return { metric: m, cost: true, events: r => (parseFloat(r.impressions) || 0) / 1000, value: r => (r.impressions > 0 ? r.spend / r.impressions * 1000 : null) };
+  if (m === 'CTR') return { metric: m, cost: false, events: r => parseFloat(r.clicks) || 0, value: r => (r.impressions > 0 ? r.clicks / r.impressions * 100 : null) };
+  if (m === 'ROAS') return { metric: m, cost: false, events: r => parseFloat(r.orders) || 0, value: r => (r.spend > 0 ? (parseFloat(r.revenue) || 0) / r.spend : null) };
+  return null;
+}
+function performanceFlags(client, cur, prev) {
+  const out = [];
+  for (const [code, mk] of Object.entries(cur.markets || {})) {
+    for (const platform of ['tiktok', 'meta', 'google']) {
+      for (const [lens, block, prevBlock] of [['brand', mk[platform], prev.markets?.[code]?.[platform]], ['commerce', mk.commerceCampaigns?.[platform], prev.markets?.[code]?.commerceCampaigns?.[platform]]]) {
+        const before = new Map((prevBlock?.campaigns || []).map(r => [r.campaign_name, r]));
+        for (const r of block?.campaigns || []) {
+          const p = before.get(r.campaign_name);
+          if (!p || !(parseFloat(r.spend) > 0) || !(parseFloat(p.spend) > 0)) continue;
+          const k = kpiOf(r.campaign_name, platform, lens === 'commerce', r);
+          if (!k || parseFloat(r.impressions) < 1000 || parseFloat(p.impressions) < 1000) continue;
+          // Enough results last week for the comparison to mean something
+          if (k.events(p) < 5) continue;
+          const a = k.value(r), b = k.value(p);
+          if (b == null || !(b > 0)) continue;
+          let worse;
+          if (a == null) worse = 3; // spent, but no results at all this week
+          else worse = k.cost ? a / b - 1 : 1 - a / b;
+          if (worse < 0.2) continue;
+          out.push({
+            client: client.id, clientName: client.name, market: code, marketName: mk.marketName, platform, lens,
+            campaign: r.campaign_name, metric: k.metric, higherIsBetter: !k.cost, current: a, previous: b,
+            change: a == null ? null : a / b - 1, score: Math.min(worse, 3), currency: block.currency, spend: parseFloat(r.spend),
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+app.get('/api/flags/performance', async (_req, res) => {
+  if (!requireKey(res)) return;
+  const cur = getDateRange(7);
+  const prev = { startDate: isoDay(Date.parse(cur.startDate) - 7 * DAY), endDate: isoDay(Date.parse(cur.startDate) - DAY) };
+  const flags = [], notes = [];
+  await Promise.all(Object.values(CLIENTS).map(client => runWithClient(client.id, async () => {
+    try {
+      const [a, b] = await Promise.all([fetchBrand(cur, PERF_FLAG_TTL), fetchBrand(prev, PERF_FLAG_TTL)]);
+      flags.push(...performanceFlags(client, a, b));
+    } catch (err) { notes.push(`${client.name}: ${err.message}`); console.error('[performance flags]', client.id, err.message); }
+  })));
+  flags.sort((x, y) => y.score - x.score || y.spend - x.spend);
+  res.json({ flags: flags.slice(0, 5), total: flags.length, notes, range: cur, previous: prev });
+});
+
 // Links from each pacing row to its campaign in the ad platform: campaign and
 // account IDs from TMR over the last 120 days, one background request per
 // platform, cached 6 hours. Keyed by platform + lower-case campaign name.

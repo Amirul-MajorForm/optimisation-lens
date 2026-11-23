@@ -30,9 +30,9 @@ export async function login(email, password) {
 }
 export const logout = () => fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
 
-// Welcome page: top pacing flags across every client
-export async function fetchFlags(signal) {
-  const res = await apiFetch('/api/flags', { signal });
+// Welcome page: top pacing flags / performance flags across every client
+export async function fetchFlags(signal, kind = 'pacing') {
+  const res = await apiFetch(kind === 'performance' ? '/api/flags/performance' : '/api/flags', { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);

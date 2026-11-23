@@ -81,11 +81,23 @@ export function initialClient() {
   } catch { /* storage unavailable: default */ }
   return DEFAULT_CLIENT;
 }
-export function rememberClient(id) {
+export function rememberClient(id, { inUrl = false } = {}) {
   try {
     window.localStorage.setItem(STORAGE_KEY, id);
     const url = new URL(window.location.href);
-    if (id === DEFAULT_CLIENT) url.searchParams.delete('client'); else url.searchParams.set('client', id);
+    // Logged in, the address always names the open client (so a reload stays on
+    // it; the bare address is the welcome page)
+    if (id === DEFAULT_CLIENT && !inUrl) url.searchParams.delete('client'); else url.searchParams.set('client', id);
+    window.history.replaceState(null, '', url);
+  } catch { /* ignore */ }
+}
+export function clientInUrl() {
+  try { return CLIENTS[new URLSearchParams(window.location.search).get('client')] ? true : false; } catch { return false; }
+}
+export function clearClientInUrl() {
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.delete('client');
     window.history.replaceState(null, '', url);
   } catch { /* ignore */ }
 }

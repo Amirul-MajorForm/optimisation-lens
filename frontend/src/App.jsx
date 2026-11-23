@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
-import { CLIENTS, initialClient, rememberClient } from './clients.js';
+import { CLIENTS, initialClient, rememberClient, clientInUrl, clearClientInUrl } from './clients.js';
 import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch, fetchPacing, fetchPacingLinks, setApiClient, setOnUnauthorized, fetchMe, logout } from './api.js';
 import LoginPage from './components/LoginPage.jsx';
 import WelcomePage from './components/WelcomePage.jsx';
@@ -28,33 +28,57 @@ export default function App() {
   // Login: null = checking; { required, user }. When login is off on the
   // server (no users configured) the dashboard opens straight away as before.
   const [auth, setAuth] = useState(null);
-  const [view, setView] = useState('home'); // 'home' (welcome) | 'dashboard'
-  const [startTab, setStartTab] = useState(null);
+  // Logged in: the welcome page first; a client's graphs load only once it is
+  // picked in the sidebar (or from a flag). A link with ?client= opens it.
+  const [view, setView] = useState(() => (clientInUrl() ? 'dashboard' : 'home'));
+  const [start, setStart] = useState({ n: 0, tab: null, market: null });
   useEffect(() => {
     setOnUnauthorized(() => setAuth(a => (a?.required === false ? a : { required: true, user: null })));
     fetchMe().then(r => setAuth({ required: r.authRequired, user: r.user })).catch(() => setAuth({ required: false, user: null }));
   }, []);
   setApiClient(client);
-  const changeClient = id => { setApiClient(id); rememberClient(id); setClient(id); };
   const baseTheme = darkMode ? DARK : LIGHT;
 
   if (!auth) return <div style={{ minHeight: '100dvh', background: baseTheme.bg }} />;
   if (auth.required && !auth.user) {
-    return <LoginPage theme={baseTheme} onLoggedIn={user => { setAuth({ required: true, user }); setView('home'); }} />;
+    return <LoginPage theme={baseTheme} onLoggedIn={user => { setAuth({ required: true, user }); setView('home'); clearClientInUrl(); }} />;
   }
-  const doLogout = async () => { await logout(); setAuth({ required: true, user: null }); };
-  const loggedIn = auth.required && auth.user;
+  const loggedIn = !!(auth.required && auth.user);
+  const doLogout = async () => { await logout(); setView('home'); clearClientInUrl(); setAuth({ required: true, user: null }); };
+  const openClient = (id, tab = null, market = null) => {
+    setApiClient(id); rememberClient(id, { inUrl: loggedIn }); setClient(id);
+    setStart(s => ({ n: s.n + 1, tab, market })); setView('dashboard');
+  };
+  const goHome = () => { setView('home'); clearClientInUrl(); };
+
   if (loggedIn && view === 'home') {
-    return <WelcomePage user={auth.user} theme={baseTheme} darkMode={darkMode} onLogout={doLogout}
-      onOpen={(id, tab = null) => { changeClient(id); setStartTab(tab); setView('dashboard'); }} />;
+    return <Home user={auth.user} darkMode={darkMode} setDarkMode={setDarkMode} onOpen={openClient} onLogout={doLogout} />;
   }
-  return <Dashboard key={`${client}:${startTab || ''}`} client={client} onClientChange={id => { setStartTab(null); changeClient(id); }} darkMode={darkMode} setDarkMode={setDarkMode}
-    initialTab={startTab} user={loggedIn ? auth.user : null} onHome={loggedIn ? () => setView('home') : null} onLogout={loggedIn ? doLogout : null} />;
+  return <Dashboard key={`${client}:${start.n}`} client={client} onClientChange={id => openClient(id)} darkMode={darkMode} setDarkMode={setDarkMode}
+    initialTab={start.tab} initialMarket={start.market} user={loggedIn ? auth.user : null} onHome={loggedIn ? goHome : null} onLogout={loggedIn ? doLogout : null} />;
 }
 
-function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode, initialTab, user, onHome, onLogout }) {
+// Welcome page with the sidebar (no client picked yet: nothing heavy loads)
+function Home({ user, darkMode, setDarkMode, onOpen, onLogout }) {
+  const theme = darkMode ? DARK : LIGHT;
+  const mobile = useIsMobile();
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => { if (!mobile) setNavOpen(false); }, [mobile]);
+  return (
+    <div style={{ display: 'flex', height: mobile ? '100dvh' : '100vh', overflow: 'hidden', fontFamily: "'DM Sans', sans-serif", color: theme.textPrimary }}>
+      <Sidebar client="" onClientChange={id => onOpen(id)} lenses={[]} activeTab="home" onTabChange={() => {}}
+        darkMode={darkMode} onToggleDark={() => setDarkMode(d => !d)} mobile={mobile} open={navOpen} onClose={() => setNavOpen(false)}
+        user={user} onHome={() => {}} onLogout={onLogout} />
+      <div style={{ flex: 1, minWidth: 0, overflowY: 'auto', background: theme.bg }}>
+        <WelcomePage user={user} theme={theme} darkMode={darkMode} mobile={mobile} onMenu={() => setNavOpen(true)} onOpen={onOpen} />
+      </div>
+    </div>
+  );
+}
+
+function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode, initialTab, initialMarket, user, onHome, onLogout }) {
   const client = CLIENTS[clientId];
-  const [market, setMarket] = useState(client.markets[0].value);
+  const [market, setMarket] = useState(client.markets.some(m => m.value === initialMarket) ? initialMarket : client.markets[0].value);
   const [dateRange, setDateRange] = useState('7');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');

@@ -96,9 +96,12 @@ import { CLIENT_LIST } from '../clients.js';
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose,
   client = 'oatside', onClientChange, lenses, lensLabels = {}, colors, user, onHome, onLogout }) {
   const S = { ...DEFAULT_COLORS, ...(colors || {}) }; // per-client sidebar colours
-  const tabs = TABS.filter(t => !lenses || lenses.includes(t.id)).map(t => ({ ...t, label: lensLabels[t.id] || t.label }));
+  const tabs = [
+    ...(onHome ? [{ id: 'home', label: 'Home', icon: ICON_HOME }] : []),
+    ...TABS.filter(t => !lenses || lenses.includes(t.id)).map(t => ({ ...t, label: lensLabels[t.id] || t.label })),
+  ];
   // Phones: a drawer that slides in over the page (opened from the header's menu button)
-  const pick = id => { onTabChange(id); if (mobile) onClose?.(); };
+  const pick = id => { if (id === 'home') onHome(); else onTabChange(id); if (mobile) onClose?.(); };
   return (
     <>
     {mobile && open && (
@@ -163,6 +166,7 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
               backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%2393c5fd' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
               backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center',
             }}>
+            {!client && <option value="" disabled>Select a client…</option>}
             {CLIENT_LIST.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
@@ -269,14 +273,6 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           <span style={{ flexShrink: 0, opacity: 0.7 }}>{darkMode ? ICON_SUN : ICON_MOON}</span>
           <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
-        {onHome && (
-          <button onClick={() => { onHome(); if (mobile) onClose?.(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
-            background: 'transparent', color: S.text, textAlign: 'left', fontSize: 13.5, fontFamily: "'DM Sans', sans-serif", transition: 'background 0.12s, color 0.12s' }}
-          onMouseEnter={e => { e.currentTarget.style.background = S.hover; e.currentTarget.style.color = '#b8d4ee'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = S.text; }}>
-            <span style={{ flexShrink: 0, opacity: 0.7 }}>{ICON_HOME}</span><span>Home</span>
-          </button>
-        )}
         {onLogout && (
           <button onClick={onLogout} data-logout style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
             background: 'transparent', color: S.text, textAlign: 'left', fontSize: 13.5, fontFamily: "'DM Sans', sans-serif", transition: 'background 0.12s, color 0.12s' }}
