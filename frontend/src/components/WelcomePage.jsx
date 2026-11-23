@@ -107,12 +107,46 @@ function AlertCard({ title, subtitle, testId, state, describe, empty, loadingTex
   );
 }
 
+// Flags are kept for the session (memory) and between visits (this browser's
+// storage), so returning to the homepage does not pull them again:
+// - performance: valid until the "last 7 days" window moves (the next day)
+// - pacing: shown at once; re-read quietly in the background after 30 minutes
+const memory = {};
+const STORE = kind => `majorview.flags.${kind}`;
+const yesterdayUTC = () => { const t = new Date(); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
+function readSaved(kind) {
+  if (memory[kind]) return memory[kind];
+  try { const v = JSON.parse(window.localStorage.getItem(STORE(kind)) || 'null'); if (v?.data) memory[kind] = v; return v?.data ? v : null; } catch { return null; }
+}
+function save(kind, data) {
+  const v = { data, savedAt: Date.now() };
+  memory[kind] = v;
+  // Partial results (a client failed) are shown but not kept
+  if (!data.partial) { try { window.localStorage.setItem(STORE(kind), JSON.stringify(v)); } catch { /* storage unavailable */ } }
+}
+const isFresh = (kind, v) => (kind === 'performance'
+  ? v.data.range?.endDate === yesterdayUTC() && !v.data.partial
+  : Date.now() - v.savedAt < 30 * 60 * 1000);
+
+// One request per kind at a time; it keeps going if the user leaves the page,
+// and its result is saved for when they come back
+const inflight = {};
+function loadFlags(kind) {
+  inflight[kind] ||= fetchFlags(undefined, kind).then(data => { save(kind, data); return data; }).finally(() => { delete inflight[kind]; });
+  return inflight[kind];
+}
+
 function useFlags(kind) {
-  const [state, setState] = useState({ data: null, error: null });
+  const [state, setState] = useState(() => { const v = readSaved(kind); return { data: v?.data || null, error: null }; });
   useEffect(() => {
-    const ctrl = new AbortController();
-    fetchFlags(ctrl.signal, kind).then(data => setState({ data, error: null })).catch(err => { if (err.name !== 'AbortError') setState({ data: null, error: err.message }); });
-    return () => ctrl.abort();
+    const saved = readSaved(kind);
+    if (saved && isFresh(kind, saved)) return undefined;
+    let live = true;
+    loadFlags(kind)
+      .then(data => { if (live) setState({ data, error: null }); })
+      // Keep showing the saved copy if the refresh fails
+      .catch(err => { if (live) setState(s => (s.data ? s : { data: null, error: err.message })); });
+    return () => { live = false; };
   }, [kind]);
   return state;
 }

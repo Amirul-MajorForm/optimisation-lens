@@ -792,15 +792,28 @@ app.get('/api/flags/performance', async (_req, res) => {
   if (!requireKey(res)) return;
   const cur = getDateRange(7);
   const prev = { startDate: isoDay(Date.parse(cur.startDate) - 7 * DAY), endDate: isoDay(Date.parse(cur.startDate) - DAY) };
-  const flags = [], notes = [];
-  await Promise.all(Object.values(CLIENTS).map(client => runWithClient(client.id, async () => {
-    try {
-      const [a, b] = await Promise.all([fetchBrand(cur, PERF_FLAG_TTL), fetchBrand(prev, PERF_FLAG_TTL)]);
-      flags.push(...performanceFlags(client, a, b));
-    } catch (err) { notes.push(`${client.name}: ${err.message}`); console.error('[performance flags]', client.id, err.message); }
-  })));
-  flags.sort((x, y) => y.score - x.score || y.spend - x.spend);
-  res.json({ flags: flags.slice(0, 5), total: flags.length, notes, range: cur, previous: prev });
+  try {
+    // The finished result is kept until the 7-day window moves (next day), so
+    // visitors after the first one get it instantly
+    const result = await runWithClient('', () => cached(`perf_flags_${cur.endDate}`, async () => {
+      const flags = [], notes = [];
+      await Promise.all(Object.values(CLIENTS).map(client => runWithClient(client.id, async () => {
+        try {
+          const [a, b] = await Promise.all([fetchBrand(cur, PERF_FLAG_TTL), fetchBrand(prev, PERF_FLAG_TTL)]);
+          flags.push(...performanceFlags(client, a, b));
+        } catch (err) { notes.push(`${client.name}: ${err.message}`); console.error('[performance flags]', client.id, err.message); }
+      })));
+      // A client that failed is not cached as "no alerts": try again next time
+      if (notes.length) throw Object.assign(new Error(notes.join('; ')), { partial: { flags, notes } });
+      flags.sort((x, y) => y.score - x.score || y.spend - x.spend);
+      return { flags: flags.slice(0, 5), total: flags.length, notes, range: cur, previous: prev, computedAt: new Date().toISOString() };
+    }, 24 * 60 * 60 * 1000));
+    res.json(result);
+  } catch (err) {
+    const part = err.partial || { flags: [], notes: [err.message] };
+    part.flags.sort((x, y) => y.score - x.score || y.spend - x.spend);
+    res.json({ flags: part.flags.slice(0, 5), total: part.flags.length, notes: part.notes, range: cur, previous: prev, partial: true });
+  }
 });
 
 // Links from each pacing row to its campaign in the ad platform: campaign and
