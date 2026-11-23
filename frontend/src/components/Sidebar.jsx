@@ -77,11 +77,6 @@ const ICON_HOME = (
     <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>
   </svg>
 );
-const ICON_LOGOUT = (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>
-  </svg>
-);
 
 const TABS = [
   { id: 'brand',    label: 'Brand Lens',    icon: ICON_BRAND },
@@ -94,7 +89,7 @@ const TABS = [
 import { CLIENT_LIST } from '../clients.js';
 
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose,
-  client = 'oatside', onClientChange, lenses, lensLabels = {}, colors, user, onHome, onLogout }) {
+  client = 'oatside', onClientChange, lenses, lensLabels = {}, colors, onHome }) {
   const S = { ...DEFAULT_COLORS, ...(colors || {}) }; // per-client sidebar colours
   const tabs = [
     ...(onHome ? [{ id: 'home', label: 'Home', icon: ICON_HOME }] : []),
@@ -273,15 +268,6 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           <span style={{ flexShrink: 0, opacity: 0.7 }}>{darkMode ? ICON_SUN : ICON_MOON}</span>
           <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
-        {onLogout && (
-          <button onClick={onLogout} data-logout style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
-            background: 'transparent', color: S.text, textAlign: 'left', fontSize: 13.5, fontFamily: "'DM Sans', sans-serif", transition: 'background 0.12s, color 0.12s' }}
-          onMouseEnter={e => { e.currentTarget.style.background = S.hover; e.currentTarget.style.color = '#b8d4ee'; }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = S.text; }}>
-            <span style={{ flexShrink: 0, opacity: 0.7 }}>{ICON_LOGOUT}</span>
-            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Log out</span>
-          </button>
-        )}
       </div>
     </div>
     </>

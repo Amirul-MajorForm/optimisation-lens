@@ -4,31 +4,7 @@ let currentClient = 'oatside';
 export const setApiClient = id => { currentClient = id; };
 const withClient = url => `${url}${url.includes('?') ? '&' : '?'}client=${encodeURIComponent(currentClient)}`;
 
-// A 401 means the session ended (logged out elsewhere, or removed): back to login
-let onUnauthorized = null;
-export const setOnUnauthorized = fn => { onUnauthorized = fn; };
-async function apiFetch(url, opts) {
-  const res = await fetch(url, { credentials: 'same-origin', ...opts });
-  if (res.status === 401) onUnauthorized?.();
-  return res;
-}
-
-// Login: { user, authRequired }. authRequired false = login is switched off.
-export async function fetchMe() {
-  const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
-  if (res.status === 401) return { user: null, authRequired: true };
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-export async function login(email, password) {
-  const res = await fetch('/api/auth/login', {
-    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-  return body;
-}
-export const logout = () => fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+const apiFetch = (url, opts) => fetch(url, opts);
 
 // Welcome page: top pacing flags / performance flags across every client
 export async function fetchFlags(signal, kind = 'pacing') {

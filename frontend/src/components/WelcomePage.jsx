@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { fetchFlags } from '../api.js';
 import { CLIENTS } from '../clients.js';
 
-// Home after login: a typed-out greeting and two cards, the top 5 pacing
+// Homepage: a typed-out greeting and two cards, the top 5 pacing
 // alerts and the top 5 performance alerts across every client. Clicking an
 // alert opens that client on the right lens and market.
 const PLATFORM = { meta: 'Meta', tiktok: 'TikTok', google: 'Google', amazon: 'Amazon' };
@@ -117,7 +117,7 @@ function useFlags(kind) {
   return state;
 }
 
-export default function WelcomePage({ user, theme, darkMode, mobile, onMenu, onOpen }) {
+export default function WelcomePage({ theme, darkMode, mobile, onMenu, onOpen }) {
   const pacing = useFlags('pacing');
   const performance = useFlags('performance');
   const mode = darkMode ? 'dark' : 'light';

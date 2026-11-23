@@ -9,7 +9,6 @@ import { normalizeRow } from './tmr.js';
 import { groupSales } from './sales.js';
 import { loadPacing, platformLink } from './pacing.js';
 import { currentClient, runWithClient, CLIENTS } from './clients.js';
-import { installAuth } from './auth.js';
 import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, AMAZON_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -239,8 +238,6 @@ function requireKey(res) {
 app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
-// Login (off until MAJORVIEW_USERS is set); must run before every other /api route
-installAuth(app);
 // Every API request runs for one client (?client=..., default OATSIDE)
 app.use('/api', (req, _res, next) => runWithClient(String(req.query.client || ''), next));
 
