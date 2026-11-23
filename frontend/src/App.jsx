@@ -59,7 +59,8 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) 
   const [goalsLoading, setGoalsLoading] = useState(false);
   const [goalsError, setGoalsError] = useState(null);
 
-  const theme = darkMode ? DARK : LIGHT;
+  // Base theme + the selected client's accent (highlights, buttons, charts)
+  const theme = { ...(darkMode ? DARK : LIGHT), ...client.accent[darkMode ? 'dark' : 'light'] };
   const mobile = useIsMobile();
   const [navOpen, setNavOpen] = useState(false);
   useEffect(() => { if (!mobile) setNavOpen(false); }, [mobile]);
@@ -324,7 +325,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) 
         onClientChange={onClientChange}
         lenses={client.lenses}
         lensLabels={client.lensLabels}
-        colors={client.sidebar}
+        colors={{ ...client.sidebar, logo: `linear-gradient(135deg, ${theme.grad[0]} 0%, ${theme.grad[1]} 100%)` }}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         darkMode={darkMode}

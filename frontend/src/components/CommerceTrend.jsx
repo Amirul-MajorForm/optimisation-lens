@@ -41,7 +41,7 @@ function MiniChart({ title, total, months, values, kind, format, axisFormat, hov
   const width = useWidth(ref);
   const H = 150, M = { top: 10, right: 8, bottom: 22, left: 44 };
   const iw = Math.max(0, width - M.left - M.right), ih = H - M.top - M.bottom;
-  const color = darkMode ? '#60a5fa' : '#2563eb';
+  const color = theme.chart || (darkMode ? '#60a5fa' : '#2563eb');
   const top = niceMax(Math.max(0, ...values.filter(v => v != null)));
   const band = months.length ? iw / months.length : 0;
   const cx = i => M.left + band * (i + 0.5);

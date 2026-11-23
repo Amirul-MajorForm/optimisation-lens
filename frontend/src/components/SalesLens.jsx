@@ -40,7 +40,7 @@ function SaleBars({ title, sales, value, format, axisFormat, best, hover, setHov
   const width = useWidth(ref);
   const H = 160, M = { top: 18, right: 8, bottom: 22, left: 46 };
   const iw = Math.max(0, width - M.left - M.right), ih = H - M.top - M.bottom;
-  const color = darkMode ? '#60a5fa' : '#2563eb';
+  const color = theme.chart || (darkMode ? '#60a5fa' : '#2563eb');
   const values = sales.map(value);
   // Token-spend sales (e.g. SGD 4 at 87x ROAS) don't set the scale; their bar is
   // clipped at the top, greyed and labelled with the real value

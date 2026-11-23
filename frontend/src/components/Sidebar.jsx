@@ -117,7 +117,7 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
       }}>
         <div style={{
           width: 32, height: 32, borderRadius: 9,
-          background: 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
+          background: S.logo || 'linear-gradient(135deg, #2563eb 0%, #7c3aed 100%)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           flexShrink: 0,
         }}>

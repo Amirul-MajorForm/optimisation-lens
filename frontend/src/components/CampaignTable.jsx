@@ -576,8 +576,9 @@ export function PlatformSection({ platform, label, data, theme, loading, lens = 
   // Crosshair hover colours (layered over each cell's opaque base, so the
   // sticky name column never shows content scrolling underneath it)
   const dark = theme.bg === '#080d1a';
-  const lineTint = dark ? 'rgba(96,165,250,0.10)' : 'rgba(37,99,235,0.06)';
-  const crossTint = dark ? 'rgba(96,165,250,0.26)' : 'rgba(37,99,235,0.16)';
+  const rgba = (hex, a) => { const n = parseInt(String(hex || '#2563eb').slice(1), 16); return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`; };
+  const lineTint = rgba(theme.chart || theme.accent, dark ? 0.10 : 0.06);
+  const crossTint = rgba(theme.chart || theme.accent, dark ? 0.26 : 0.16);
   const layer = (tint, base) => (tint ? `linear-gradient(${tint}, ${tint}), ${base}` : base);
 
   return (

@@ -112,7 +112,7 @@ export default function Header({
               fontSize: 12,
               fontWeight: market === m.value ? 700 : 500,
               fontFamily: "'DM Sans', sans-serif",
-              background: market === m.value ? 'linear-gradient(135deg, #2563eb, #7c3aed)' : 'transparent',
+              background: market === m.value ? `linear-gradient(135deg, ${theme.grad?.[0] || '#2563eb'}, ${theme.grad?.[1] || '#7c3aed'})` : 'transparent',
               color: market === m.value ? '#fff' : theme.textSecondary,
               transition: 'all 0.15s',
             }}
@@ -141,7 +141,7 @@ export default function Header({
             onClick={onApplyCustom}
             disabled={!customStart || !customEnd || customStart > customEnd}
             style={{
-              background: 'linear-gradient(135deg, #2563eb, #7c3aed)',
+              background: `linear-gradient(135deg, ${theme.grad?.[0] || '#2563eb'}, ${theme.grad?.[1] || '#7c3aed'})`,
               color: '#fff', border: 'none', borderRadius: 8,
               padding: '7px 14px', fontSize: 13, fontWeight: 600,
               fontFamily: "'DM Sans', sans-serif",

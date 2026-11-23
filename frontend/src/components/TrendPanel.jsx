@@ -65,7 +65,7 @@ function LineChart({ points, metric, currency, goal, theme, darkMode }) {
   const width = useWidth(wrapRef);
   const [hover, setHover] = useState(null);
   const H = 260, M = { top: 16, right: 16, bottom: 28, left: 56 };
-  const line = darkMode ? '#60a5fa' : '#2563eb';
+  const line = theme.chart || (darkMode ? '#60a5fa' : '#2563eb');
   const grid = theme.border;
 
   const values = points.map(p => p.value).filter(v => v != null);
