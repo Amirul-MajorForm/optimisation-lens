@@ -133,6 +133,10 @@ const MOVEREPEAT = {
   amazon: [],
   cpas: { local: [], SGD: [] },
   cpasMarket: {},
+  // Google: count only the "Purchase (www.yogamovement.com/classes/purchase-success)"
+  // conversion action. Google's primary "Conversions" also include
+  // "Purchase (/classes/purchase)", a purchase page view (~90% of the total).
+  googleConversionAction: /purchase-success/i,
   goalsTab: null, // no goals yet: the "Pacing" tab has no Goal / Model columns
   pacingTabs: { MoveRepeat: process.env.MOVEREPEAT_PACING_GID || '0' }, // "Pacing" (shared with other clients)
   // Keep only MoveRepeat's rows of the shared "Pacing" tab

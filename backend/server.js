@@ -89,7 +89,7 @@ const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name
   // Search Lens
   'gadw_search_term_view_search_term', 'gadw_segments_keyword_info_text', 'gadw_segments_keyword_info_match_type',
   'gadw_ad_group_criterion_keyword_text', 'gadw_ad_group_criterion_match_type', 'gadw_ad_group_criterion_quality_info_quality_score',
-  'amazonads_search_term'];
+  'amazonads_search_term', 'gadw_segments_conversion_action_name'];
 const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
 const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions',
   gadw_metrics_search_impression_share: 'impressions' };
@@ -243,6 +243,28 @@ app.use('/api', (req, _res, next) => runWithClient(String(req.query.client || ''
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 
+// Some clients count only one Google conversion action (MoveRepeat: purchase
+// success, not the purchase page view). Re-reads the Google rows' conversions
+// and conversion value from a conversion-action breakdown with the same
+// dimensions (one extra request), keeping only the matching action.
+async function applyGoogleConversionAction(raw, range, opts = {}) {
+  const rule = currentClient().googleConversionAction;
+  if (!rule || !raw?.data?.length) return raw;
+  const dims = opts.dimensions || ['campaign_name'];
+  const actRaw = await makeQuery(ALL_ACCOUNTS.google, ['conversions', 'gadw_metrics_conversions_value'], range,
+    { ...opts, dimensions: [...dims, 'gadw_segments_conversion_action_name'] });
+  const key = r => dims.map(d => r[d] ?? r[d.replace(/^(ttads|fads|gadw|amazonads)_/, '')] ?? '').join('|');
+  const by = new Map();
+  for (const r of actRaw?.data || []) {
+    if (!rule.test(String(r.gadw_segments_conversion_action_name ?? r.segments_conversion_action_name ?? ''))) continue;
+    const a = by.get(key(r)) || { c: 0, v: 0 };
+    a.c += parseFloat(r.conversions) || 0;
+    a.v += parseFloat(r.gadw_metrics_conversions_value) || 0;
+    by.set(key(r), a);
+  }
+  return { ...raw, data: raw.data.map(r => { const a = by.get(key(r)) || { c: 0, v: 0 }; return { ...r, conversions: a.c, gadw_metrics_conversions_value: a.v }; }) };
+}
+
 // Brand Lens: non-CPAS accounts. Campaigns containing "_Sales_" or "_Conversion_"
 // are split out into `commerceCampaigns` so Commerce Lens can show them
 // without another TMR request.
@@ -253,7 +275,7 @@ function fetchBrand(dateRangeObj, ttl = CACHE_TTL) {
     // 3 requests total — one per platform, all markets combined (queued in tmr.js)
     const ttRaw     = await makeQuery(ALL_ACCOUNTS.tiktok, TIKTOK_METRICS, dateRangeObj);
     const metaRaw   = await makeQuery(ALL_ACCOUNTS.meta, META_METRICS, dateRangeObj);
-    const googleRaw = await makeQuery(ALL_ACCOUNTS.google, GOOGLE_METRICS, dateRangeObj);
+    const googleRaw = await applyGoogleConversionAction(await makeQuery(ALL_ACCOUNTS.google, GOOGLE_METRICS, dateRangeObj), dateRangeObj);
 
     // Split each platform's rows into per-market buckets
     const split = { tiktok: splitByMarket(ttRaw), meta: splitByMarket(metaRaw), google: splitByMarket(googleRaw) };
@@ -433,6 +455,7 @@ app.get('/api/drill', async (req, res) => {
       const hasRows = r => (r?.data || []).length > 0;
       let raw = own.length ? await makeQuery(own, metrics, range, opts) : null;
       if (!hasRows(raw) && others.length) raw = await makeQuery(others, metrics, range, opts);
+      if (platform === 'google') raw = await applyGoogleConversionAction(raw, range, opts);
       const rows = (raw?.data || []).map(row => {
         const r = normalizeRow(row);
         const adsetName = r.adset_name ?? r.adgroup_name ?? r.ad_group_name
@@ -862,7 +885,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
         { key: 'cpas',   accounts: CPAS_ACCOUNTS.local, metrics: ['amount_spent', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'], currency: m => MARKETS[m]?.currency.meta },
         { key: 'cpas',   accounts: CPAS_ACCOUNTS.SGD,   metrics: ['amount_spent', 'fads_collab_action_omni_purchase', 'fads_collab_ads_value_omni_purchase'], currency: () => 'SGD' },
         { key: 'tiktok', accounts: ALL_ACCOUNTS.tiktok, metrics: ['amount_spent', 'ttads_gmv_cost', 'ttads_gmv_orders', 'ttads_gmv_gross_revenue'], currency: () => 'SGD', commerceOnly: true },
-        { key: 'meta',   accounts: ALL_ACCOUNTS.meta,   metrics: ['amount_spent', 'fads_all_purchases', 'fads_purchase_conversions_all'], currency: m => MARKETS[m]?.currency.meta, commerceOnly: true },
+        { key: 'meta',   accounts: ALL_ACCOUNTS.meta,   metrics: ['amount_spent', 'fads_all_purchases', 'fads_purchase_conversions_all', 'fads_lead'], currency: m => MARKETS[m]?.currency.meta, commerceOnly: true },
         { key: 'google', accounts: ALL_ACCOUNTS.google, metrics: ['amount_spent', 'conversions', 'gadw_metrics_conversions_value'], currency: () => 'SGD', commerceOnly: true },
         { key: 'amazon', accounts: AMAZON_ACCOUNTS, metrics: ['amount_spent', 'amazonads_cost', 'amazonads_total_purchases', 'amazonads_total_sales'], currency: m => MARKETS[m]?.currency.amazon },
       ];
@@ -877,6 +900,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
         let raw;
         try { raw = await withTimeout(makeQuery(src.accounts, src.metrics, range, { ...opts, ...(src.key === 'amazon' ? { split: false } : {}) }), 75000, src.key); }
         catch (err) { errors.push(`${src.key}: ${err.message}`); console.error('[commerce monthly]', src.key, err.message); continue; }
+        if (src.key === 'google') raw = await applyGoogleConversionAction(raw, range, opts).catch(() => raw);
         for (const row of raw?.data || []) {
           const r = normalizeRow(row);
           if (src.commerceOnly && !isCommerceRow(r)) continue;
@@ -889,12 +913,13 @@ app.get('/api/commerce/monthly', async (req, res) => {
           const spend = (parseFloat(r.spend) || 0) * rate;
           const revenue = (r.revenue || 0) * rate;
           const orders = r.orders || 0;
-          if (!spend && !orders && !revenue) continue;
+          const leads = r.leads || 0;
+          if (!spend && !orders && !revenue && !leads) continue;
           const mk = (markets[market] ||= {});
-          const bucket = (mk[month] ||= { month, spend: 0, orders: 0, revenue: 0, byPlatform: {} });
-          const plat = (bucket.byPlatform[src.key] ||= { spend: 0, orders: 0, revenue: 0 });
-          bucket.spend += spend; bucket.orders += orders; bucket.revenue += revenue;
-          plat.spend += spend; plat.orders += orders; plat.revenue += revenue;
+          const bucket = (mk[month] ||= { month, spend: 0, orders: 0, revenue: 0, leads: 0, byPlatform: {} });
+          const plat = (bucket.byPlatform[src.key] ||= { spend: 0, orders: 0, revenue: 0, leads: 0 });
+          bucket.spend += spend; bucket.orders += orders; bucket.revenue += revenue; bucket.leads += leads;
+          plat.spend += spend; plat.orders += orders; plat.revenue += revenue; plat.leads += leads;
           const cm = ((((campaignMonths[market] ||= {})[src.key] ||= {})[r.campaign_name] ||= {})[month] ||= { spend: 0, orders: 0, revenue: 0 });
           cm.spend += spend; cm.orders += orders; cm.revenue += revenue;
         }
@@ -908,7 +933,7 @@ app.get('/api/commerce/monthly', async (req, res) => {
       const out = {};
       for (const code of Object.keys(MARKETS)) {
         out[code] = months.map(month => {
-          const b = markets[code]?.[month] || { month, spend: 0, orders: 0, revenue: 0, byPlatform: {} };
+          const b = markets[code]?.[month] || { month, spend: 0, orders: 0, revenue: 0, leads: 0, byPlatform: {} };
           return { ...b, roas: b.spend > 0 && b.revenue > 0 ? b.revenue / b.spend : null };
         });
       }

@@ -434,6 +434,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) 
               {isCommerce && (
                 <CommerceLens
                   variant={client.commerceVariant}
+                  topline={client.performanceTopline?.[market] || 'orders'}
                   clientName={client.name}
                   theme={theme}
                   commerce={commerceData?.markets?.[market]}

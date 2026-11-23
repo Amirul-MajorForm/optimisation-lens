@@ -41,7 +41,7 @@ function makePrev(monthlyData, market, rangeStart, rangeEnd, source) {
   };
 }
 
-export default function CommerceLens({ theme, darkMode, commerce, campaigns, loading, onTrend, monthly, marketName, market, rangeStart, rangeEnd, variant = 'commerce' }) {
+export default function CommerceLens({ theme, darkMode, commerce, campaigns, loading, onTrend, monthly, marketName, market, rangeStart, rangeEnd, variant = 'commerce', topline = 'orders' }) {
   const prevFor = source => makePrev(monthly?.data, market, rangeStart, rangeEnd, source);
   return (
     <div>
@@ -53,6 +53,7 @@ export default function CommerceLens({ theme, darkMode, commerce, campaigns, loa
         darkMode={darkMode}
         marketName={marketName}
         variant={variant}
+        topline={topline}
       />
       <CommerceTables theme={theme} commerce={commerce} campaigns={campaigns} loading={loading} onTrend={onTrend} prevFor={prevFor} variant={variant} />
     </div>

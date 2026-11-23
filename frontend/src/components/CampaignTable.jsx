@@ -58,7 +58,7 @@ const PERFORMANCE_COLUMNS = [
   { key: 'spend',         label: 'Spend',    align: 'right', format: 'currency', width: 120, title: 'Small label: daily average spend vs the previous month' },
   { key: 'leads',         label: 'Leads',    align: 'right', format: 'number', title: 'Meta leads (all: forms, messenger and website)' },
   { key: 'cpl',           label: 'CPL',      align: 'right', format: 'currency', title: 'Cost per lead = spend / leads' },
-  { key: 'orders',        label: 'Conv.',    align: 'right', format: 'number', title: 'Conversions: Meta purchases, Google conversions. Small label: daily average vs the previous month' },
+  { key: 'orders',        label: 'Conv.',    align: 'right', format: 'number', title: 'Conversions: Meta purchases; Google conversions (MoveRepeat: purchase success only). Small label: daily average vs the previous month' },
   { key: 'cpa',           label: 'CPA',      align: 'right', format: 'currency', title: 'Cost per conversion = spend / conversions' },
   { key: 'revenue',       label: 'Conv. value', align: 'right', format: 'currency', width: 110, title: 'Conversion value reported by the platform' },
   { key: 'impressions',   label: 'Impr.',    align: 'right', format: 'compact' },

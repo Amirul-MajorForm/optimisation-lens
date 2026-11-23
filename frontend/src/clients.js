@@ -33,6 +33,9 @@ export const CLIENTS = {
       { value: 'strong-sg', label: 'Strong SG' },
     ],
     commerceVariant: 'performance', // leads / CPL / conversions / CPA
+    // Top charts in Performance Lens: Strong runs lead campaigns (Leads + CPL);
+    // Yoga Movement counts conversions (Google: purchase success) + CPA
+    performanceTopline: { 'strong-sg': 'leads' },
     topAdsOnCommerce: false,
   },
 };

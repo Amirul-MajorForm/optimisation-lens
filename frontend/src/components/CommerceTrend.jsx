@@ -14,6 +14,8 @@ const monthLabel = (ym, short = true) => short
 
 const fmtSgd = v => v >= 100000 ? `SGD ${(v / 1000).toFixed(0)}K` : v >= 10000 ? `SGD ${(v / 1000).toFixed(1)}K`
   : `SGD ${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+// Cost per lead / conversion: cents matter below SGD 100
+const fmtCost = v => (v == null ? '—' : v < 100 ? `SGD ${v.toFixed(2)}` : fmtSgd(v));
 const fmtNum = v => v >= 10000 ? `${(v / 1000).toFixed(1)}K` : Math.round(v).toLocaleString('en-US');
 const fmtRoas = v => (v == null ? '—' : `${v.toFixed(2)}x`);
 
@@ -101,7 +103,11 @@ function MiniChart({ title, total, months, values, kind, format, axisFormat, hov
   );
 }
 
-export default function CommerceTrend({ data, loading, error, theme, darkMode, marketName, variant = 'commerce' }) {
+export default function CommerceTrend({ data, loading, error, theme, darkMode, marketName, variant = 'commerce', topline = 'orders' }) {
+  // Performance Lens: the second chart is leads or conversions, the third the
+  // cost per one (CPL / CPA) instead of ROAS
+  const perf = variant === 'performance';
+  const unit = perf && topline === 'leads' ? { key: 'leads', label: 'Leads', cost: 'CPL' } : { key: 'orders', label: perf ? 'Conversions' : 'Orders', cost: 'CPA' };
   const [hover, setHover] = useState(null);
   const [expanded, setExpanded] = useState(true);
   const months = data?.months || [];
@@ -112,12 +118,12 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
   const available = PLATFORM_ORDER.filter(k => fullSeries.some(m => m.byPlatform?.[k]));
   const active = picked.size ? available.filter(k => picked.has(k)) : available;
   const series = picked.size ? fullSeries.map(m => {
-    const t = { spend: 0, orders: 0, revenue: 0 };
+    const t = { spend: 0, orders: 0, revenue: 0, leads: 0 };
     const byPlatform = {};
     for (const k of active) {
       const p = m.byPlatform?.[k];
       if (!p) continue;
-      t.spend += p.spend; t.orders += p.orders; t.revenue += p.revenue;
+      t.spend += p.spend; t.orders += p.orders; t.revenue += p.revenue; t.leads += p.leads || 0;
       byPlatform[k] = p;
     }
     return { ...m, ...t, byPlatform, roas: t.spend > 0 && t.revenue > 0 ? t.revenue / t.spend : null };
@@ -130,7 +136,7 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
   const currentMonth = months[months.length - 1];
 
   const sum = k => series.reduce((a, m) => a + (m[k] || 0), 0);
-  const totSpend = sum('spend'), totOrders = sum('orders'), totRevenue = sum('revenue');
+  const totSpend = sum('spend'), totOrders = sum(unit.key), totRevenue = sum('revenue');
   const hp = hover != null ? series[hover] : null;
 
   return (
@@ -184,12 +190,19 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
                 <MiniChart title="Spend" total={fmtSgd(totSpend)} months={months} values={series.map(m => m.spend)} kind="bar"
                   format={fmtSgd} axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : Math.round(v))}
                   hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} currentMonth={currentMonth} />
-                <MiniChart title={variant === 'performance' ? 'Conversions' : 'Orders'} total={fmtNum(totOrders)} months={months} values={series.map(m => m.orders)} kind="bar"
+                <MiniChart title={unit.label} total={fmtNum(totOrders)} months={months} values={series.map(m => m[unit.key] || 0)} kind="bar"
                   format={fmtNum} axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : Math.round(v))}
                   hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} currentMonth={currentMonth} />
+                {perf ? (
+                  <MiniChart title={unit.cost} total={totOrders > 0 ? fmtCost(totSpend / totOrders) : '—'} months={months}
+                    values={series.map(m => (m[unit.key] > 0 ? m.spend / m[unit.key] : null))} kind="line" format={fmtCost}
+                    axisFormat={v => (v >= 1000 ? `${+(v / 1000).toFixed(1)}K` : +v.toFixed(v < 10 ? 1 : 0))}
+                    hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} currentMonth={currentMonth} />
+                ) : (
                 <MiniChart title="ROAS" total={fmtRoas(totSpend > 0 && totRevenue > 0 ? totRevenue / totSpend : null)} months={months}
                   values={series.map(m => m.roas)} kind="line" format={fmtRoas} axisFormat={v => `${+v.toFixed(1)}x`}
                   hover={hover} setHover={setHover} theme={theme} darkMode={darkMode} currentMonth={currentMonth} />
+                )}
               </div>
 
               {/* Month detail: platform breakdown for the hovered month */}
@@ -202,7 +215,9 @@ export default function CommerceTrend({ data, loading, error, theme, darkMode, m
                       return (
                         <span key={k}>
                           <span style={{ fontWeight: 600, color: theme.textPrimary }}>{PLATFORM_LABEL[k]}</span>{' '}
-                          {fmtSgd(p.spend)} · {fmtNum(p.orders)} orders · {fmtRoas(p.spend > 0 && p.revenue > 0 ? p.revenue / p.spend : null)}
+                          {perf
+                            ? `${fmtSgd(p.spend)} · ${fmtNum(p[unit.key] || 0)} ${unit.label.toLowerCase()} · ${unit.cost} ${(p[unit.key] || 0) > 0 ? fmtCost(p.spend / p[unit.key]) : '—'}`
+                            : <>{fmtSgd(p.spend)} · {fmtNum(p.orders)} orders · {fmtRoas(p.spend > 0 && p.revenue > 0 ? p.revenue / p.spend : null)}</>}
                         </span>
                       );
                     })}
