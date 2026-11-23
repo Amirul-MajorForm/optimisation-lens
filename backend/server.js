@@ -8,7 +8,8 @@ import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { normalizeRow } from './tmr.js';
 import { groupSales } from './sales.js';
 import { loadPacing, platformLink } from './pacing.js';
-import { currentClient, runWithClient } from './clients.js';
+import { currentClient, runWithClient, CLIENTS } from './clients.js';
+import { installAuth } from './auth.js';
 import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, AMAZON_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -235,8 +236,11 @@ function requireKey(res) {
   return false;
 }
 
+app.set('trust proxy', 1);
 app.use(cors());
 app.use(express.json());
+// Login (off until MAJORVIEW_USERS is set); must run before every other /api route
+installAuth(app);
 // Every API request runs for one client (?client=..., default OATSIDE)
 app.use('/api', (req, _res, next) => runWithClient(String(req.query.client || ''), next));
 
@@ -700,6 +704,36 @@ app.get('/api/pacing', async (req, res) => {
     console.error('[pacing error]', err.message);
     res.status(500).json({ error: `Could not read the MajorPace sheet: ${err.message}` });
   }
+});
+
+// Welcome page: the top 5 pacing flags across every client (from the pacing
+// sheets only, no TMR calls, so it loads fast)
+app.get('/api/flags', async (_req, res) => {
+  const flags = [], notes = [];
+  await Promise.all(Object.values(CLIENTS).map(client => runWithClient(client.id, async () => {
+    try {
+      const { rows, pacingDate, marketNames } = await cached('pacing_sheet', loadPacing, PACING_TTL);
+      for (const r of rows) {
+        if (r.status !== 'live' && r.status !== 'paused') continue;
+        const daysLeft = r.end && pacingDate ? Math.round((Date.parse(r.end) - Date.parse(pacingDate)) / DAY) : null;
+        let kind = null, score = 0;
+        if (r.flightOver) { kind = 'flight-over'; score = 0.6; }
+        else if (r.state === 'over' || r.state === 'under') {
+          kind = r.state;
+          // Further from 100% = worse; weighted up when the flight ends within a week
+          score = Math.abs(r.overall - 1) * (daysLeft != null && daysLeft <= 7 ? 1.5 : 1);
+        }
+        if (!kind) continue;
+        flags.push({
+          client: client.id, clientName: client.name, market: r.market, marketName: marketNames?.[r.market] || r.marketName,
+          platform: r.platform, platformLabel: r.platformLabel, campaign: r.campaign, status: r.status,
+          kind, score, overall: r.overall, spendText: r.spendText, budgetText: r.budgetText, end: r.end, daysLeft, pacingDate,
+        });
+      }
+    } catch (err) { notes.push(`${client.name}: ${err.message}`); console.error('[flags]', client.id, err.message); }
+  })));
+  flags.sort((a, b) => b.score - a.score);
+  res.json({ flags: flags.slice(0, 5), total: flags.length, notes });
 });
 
 // Links from each pacing row to its campaign in the ad platform: campaign and

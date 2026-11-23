@@ -72,6 +72,17 @@ const ICON_PACING = (
   </svg>
 );
 
+const ICON_HOME = (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 10.5L12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/>
+  </svg>
+);
+const ICON_LOGOUT = (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/>
+  </svg>
+);
+
 const TABS = [
   { id: 'brand',    label: 'Brand Lens',    icon: ICON_BRAND },
   { id: 'commerce', label: 'Commerce Lens', icon: ICON_COMMERCE },
@@ -83,7 +94,7 @@ const TABS = [
 import { CLIENT_LIST } from '../clients.js';
 
 export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark, mobile = false, open = false, onClose,
-  client = 'oatside', onClientChange, lenses, lensLabels = {}, colors }) {
+  client = 'oatside', onClientChange, lenses, lensLabels = {}, colors, user, onHome, onLogout }) {
   const S = { ...DEFAULT_COLORS, ...(colors || {}) }; // per-client sidebar colours
   const tabs = TABS.filter(t => !lenses || lenses.includes(t.id)).map(t => ({ ...t, label: lensLabels[t.id] || t.label }));
   // Phones: a drawer that slides in over the page (opened from the header's menu button)
@@ -107,8 +118,9 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
       borderRight: `1px solid ${S.border}`,
       ...(mobile ? { transform: open ? 'none' : 'translateX(-105%)', transition: 'transform 0.2s ease', visibility: open ? 'visible' : 'hidden' } : {}),
     }}>
-      {/* Logo */}
-      <div style={{
+      {/* Logo (back to the welcome page when logged in) */}
+      <div onClick={onHome ? () => { onHome(); if (mobile) onClose?.(); } : undefined} title={onHome ? 'Home' : undefined} data-home={onHome ? '' : undefined} style={{
+        cursor: onHome ? 'pointer' : 'default',
         padding: '20px 20px 16px',
         borderBottom: `1px solid ${S.border}`,
         display: 'flex',
@@ -257,6 +269,23 @@ export default function Sidebar({ activeTab, onTabChange, darkMode, onToggleDark
           <span style={{ flexShrink: 0, opacity: 0.7 }}>{darkMode ? ICON_SUN : ICON_MOON}</span>
           <span>{darkMode ? 'Light Mode' : 'Dark Mode'}</span>
         </button>
+        {onHome && (
+          <button onClick={() => { onHome(); if (mobile) onClose?.(); }} style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
+            background: 'transparent', color: S.text, textAlign: 'left', fontSize: 13.5, fontFamily: "'DM Sans', sans-serif", transition: 'background 0.12s, color 0.12s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = S.hover; e.currentTarget.style.color = '#b8d4ee'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = S.text; }}>
+            <span style={{ flexShrink: 0, opacity: 0.7 }}>{ICON_HOME}</span><span>Home</span>
+          </button>
+        )}
+        {onLogout && (
+          <button onClick={onLogout} data-logout style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 11, padding: '10px 12px', borderRadius: 9, border: 'none', cursor: 'pointer',
+            background: 'transparent', color: S.text, textAlign: 'left', fontSize: 13.5, fontFamily: "'DM Sans', sans-serif", transition: 'background 0.12s, color 0.12s' }}
+          onMouseEnter={e => { e.currentTarget.style.background = S.hover; e.currentTarget.style.color = '#b8d4ee'; }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = S.text; }}>
+            <span style={{ flexShrink: 0, opacity: 0.7 }}>{ICON_LOGOUT}</span>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Log out{user?.name ? ` (${user.name})` : ''}</span>
+          </button>
+        )}
       </div>
     </div>
     </>

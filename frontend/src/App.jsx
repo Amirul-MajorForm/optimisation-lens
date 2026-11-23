@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { DARK, LIGHT } from './theme.js';
 import { CLIENTS, initialClient, rememberClient } from './clients.js';
-import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch, fetchPacing, fetchPacingLinks, setApiClient } from './api.js';
+import { fetchDashboard, fetchCommerce, fetchGoals, fetchCommerceMonthly, fetchSales, fetchTopAds, fetchDrill, fetchStatus, fetchSearch, fetchPacing, fetchPacingLinks, setApiClient, setOnUnauthorized, fetchMe, logout } from './api.js';
+import LoginPage from './components/LoginPage.jsx';
+import WelcomePage from './components/WelcomePage.jsx';
 import { resolvePreset } from './dateRanges.js';
 import Header from './components/Header.jsx';
 import CampaignTable, { DrillContext, GoalModelContext, StatusContext } from './components/CampaignTable.jsx';
@@ -23,12 +25,34 @@ const MARKET_CODES = (...sources) => Object.assign({}, ...sources.map(s => s?.ma
 export default function App() {
   const [client, setClient] = useState(initialClient);
   const [darkMode, setDarkMode] = useState(false);
+  // Login: null = checking; { required, user }. When login is off on the
+  // server (no users configured) the dashboard opens straight away as before.
+  const [auth, setAuth] = useState(null);
+  const [view, setView] = useState('home'); // 'home' (welcome) | 'dashboard'
+  const [startTab, setStartTab] = useState(null);
+  useEffect(() => {
+    setOnUnauthorized(() => setAuth(a => (a?.required === false ? a : { required: true, user: null })));
+    fetchMe().then(r => setAuth({ required: r.authRequired, user: r.user })).catch(() => setAuth({ required: false, user: null }));
+  }, []);
   setApiClient(client);
   const changeClient = id => { setApiClient(id); rememberClient(id); setClient(id); };
-  return <Dashboard key={client} client={client} onClientChange={changeClient} darkMode={darkMode} setDarkMode={setDarkMode} />;
+  const baseTheme = darkMode ? DARK : LIGHT;
+
+  if (!auth) return <div style={{ minHeight: '100dvh', background: baseTheme.bg }} />;
+  if (auth.required && !auth.user) {
+    return <LoginPage theme={baseTheme} onLoggedIn={user => { setAuth({ required: true, user }); setView('home'); }} />;
+  }
+  const doLogout = async () => { await logout(); setAuth({ required: true, user: null }); };
+  const loggedIn = auth.required && auth.user;
+  if (loggedIn && view === 'home') {
+    return <WelcomePage user={auth.user} theme={baseTheme} darkMode={darkMode} onLogout={doLogout}
+      onOpen={(id, tab = null) => { changeClient(id); setStartTab(tab); setView('dashboard'); }} />;
+  }
+  return <Dashboard key={`${client}:${startTab || ''}`} client={client} onClientChange={id => { setStartTab(null); changeClient(id); }} darkMode={darkMode} setDarkMode={setDarkMode}
+    initialTab={startTab} user={loggedIn ? auth.user : null} onHome={loggedIn ? () => setView('home') : null} onLogout={loggedIn ? doLogout : null} />;
 }
 
-function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) {
+function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode, initialTab, user, onHome, onLogout }) {
   const client = CLIENTS[clientId];
   const [market, setMarket] = useState(client.markets[0].value);
   const [dateRange, setDateRange] = useState('7');
@@ -38,7 +62,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [activeTab, setActiveTab] = useState(client.lenses[0]);
+  const [activeTab, setActiveTab] = useState(initialTab && client.lenses.includes(initialTab) ? initialTab : client.lenses[0]);
   // Campaign trend chart: { campaign, platform, lens, currency } of the campaign being viewed
   const [trendTarget, setTrendTarget] = useState(null);
   const closeTrend = useCallback(() => setTrendTarget(null), []);
@@ -333,6 +357,9 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode }) 
         mobile={mobile}
         open={navOpen}
         onClose={() => setNavOpen(false)}
+        user={user}
+        onHome={onHome}
+        onLogout={onLogout}
       />
 
       <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', background: theme.bg }}>

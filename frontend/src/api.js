@@ -4,13 +4,49 @@ let currentClient = 'oatside';
 export const setApiClient = id => { currentClient = id; };
 const withClient = url => `${url}${url.includes('?') ? '&' : '?'}client=${encodeURIComponent(currentClient)}`;
 
+// A 401 means the session ended (logged out elsewhere, or removed): back to login
+let onUnauthorized = null;
+export const setOnUnauthorized = fn => { onUnauthorized = fn; };
+async function apiFetch(url, opts) {
+  const res = await fetch(url, { credentials: 'same-origin', ...opts });
+  if (res.status === 401) onUnauthorized?.();
+  return res;
+}
+
+// Login: { user, authRequired }. authRequired false = login is switched off.
+export async function fetchMe() {
+  const res = await fetch('/api/auth/me', { credentials: 'same-origin' });
+  if (res.status === 401) return { user: null, authRequired: true };
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+export async function login(email, password) {
+  const res = await fetch('/api/auth/login', {
+    method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body;
+}
+export const logout = () => fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+
+// Welcome page: top pacing flags across every client
+export async function fetchFlags(signal) {
+  const res = await apiFetch('/api/flags', { signal });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 async function getJSON(path, { dateRange, startDate, endDate }, signal, extra = {}) {
   const params = new URLSearchParams({ dateRange: String(dateRange), ...extra });
   if (startDate && endDate) {
     params.set('startDate', startDate);
     params.set('endDate', endDate);
   }
-  const res = await fetch(withClient(`${path}?${params}`), { signal });
+  const res = await apiFetch(withClient(`${path}?${params}`), { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -37,12 +73,12 @@ export const fetchSearch = (params, signal) => getJSON('/api/search', params, si
 
 // Pacing Lens: MajorPace sheet rows; platform links load separately (slower)
 export async function fetchPacing(signal, fresh = false) {
-  const res = await fetch(withClient(`/api/pacing${fresh ? '?fresh=1' : ''}`), { signal });
+  const res = await apiFetch(withClient(`/api/pacing${fresh ? '?fresh=1' : ''}`), { signal });
   if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `HTTP ${res.status}`); }
   return res.json();
 }
 export async function fetchPacingLinks(signal) {
-  const res = await fetch(withClient('/api/pacing/links'), { signal });
+  const res = await apiFetch(withClient('/api/pacing/links'), { signal });
   if (!res.ok) { const b = await res.json().catch(() => ({})); throw new Error(b.error || `HTTP ${res.status}`); }
   return res.json();
 }
@@ -54,7 +90,7 @@ export const fetchTrend = (params, { campaign, platform, lens, lpv = false, rev 
 // Commerce Lens header chart: monthly totals since the start of the year,
 // independent of the date filter
 export async function fetchCommerceMonthly(signal) {
-  const res = await fetch(withClient('/api/commerce/monthly'), { signal });
+  const res = await apiFetch(withClient('/api/commerce/monthly'), { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -64,7 +100,7 @@ export async function fetchCommerceMonthly(signal) {
 
 // Sales Lens: mega-sale periods for one market (Meta CPAS), since start of year
 export async function fetchSales(market, signal) {
-  const res = await fetch(withClient(`/api/sales?market=${encodeURIComponent(market)}`), { signal });
+  const res = await apiFetch(withClient(`/api/sales?market=${encodeURIComponent(market)}`), { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
