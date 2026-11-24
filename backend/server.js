@@ -61,9 +61,11 @@ const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'
   metrics,
   dateRange,
   ...(filters?.length ? { filters } : {}),
+  // TMR only sorts by a field the query asks for: spend when it is requested,
+  // else the first metric (e.g. the conversion-action and Results queries)
   sort: dimensions.includes('date')
     ? [{ fieldId: 'date', direction: 'asc' }]
-    : [{ fieldId: 'amount_spent', direction: 'desc' }],
+    : [{ fieldId: metrics.includes('amount_spent') || !metrics.length ? 'amount_spent' : metrics[0], direction: 'desc' }],
 }, { priority });
 
 const DAY = 86400000;
