@@ -281,6 +281,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode, in
 
   // Search Lens: all markets for the selected range, loaded when the tab opens
   const [searchByRange, setSearchByRange] = useState({});
+  const [searchVersion, setSearchVersion] = useState(0); // Refresh also reloads the Movers / Headroom views
   const searchKey = `${fetchParams.dateRange}|${fetchParams.startDate}|${fetchParams.endDate}`;
   const loadSearch = useCallback((force = false) => {
     setSearchByRange(s => (!force && s[searchKey] ? s : { ...s, [searchKey]: { loading: true } }));
@@ -328,7 +329,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode, in
     load();
     if (activeTab === 'brand') loadGoals();
     if (activeTab === 'commerce') loadCommerce();
-    if (activeTab === 'search') loadSearch(true);
+    if (activeTab === 'search') { loadSearch(true); setSearchVersion(v => v + 1); }
     if (activeTab === 'pacing') loadPacing(true);
   };
 
@@ -459,7 +460,7 @@ function Dashboard({ client: clientId, onClientChange, darkMode, setDarkMode, in
               )}
 
               {activeTab === 'search' && (
-                <SearchLens state={searchByRange[searchKey]} market={market} marketName={marketName} theme={theme} darkMode={darkMode} />
+                <SearchLens state={searchByRange[searchKey]} params={fetchParams} version={searchVersion} market={market} marketName={marketName} theme={theme} darkMode={darkMode} />
               )}
 
               {activeTab === 'sales' && (

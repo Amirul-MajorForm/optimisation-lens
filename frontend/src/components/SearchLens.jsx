@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { fmt } from '../theme.js';
+import { Chips, WordsView, MoversView, OverlapView, HeadroomView, kpiOf, kpiValue } from './SearchViews.jsx';
 
 // Search Lens: Google keywords / search terms and Amazon search terms for one
-// market and date range. Each platform gets a quadrant chart (spend vs ROAS)
-// and lists to act on: opportunities, negative candidates, top performers.
+// market and date range. One platform at a time, with a summary strip (incl.
+// wasted spend) and views:
+//   Performance: quadrant chart (spend vs ROAS) and lists to act on
+//   Words / Movers / Overlap / Headroom: see SearchViews.jsx
 
 const QUADRANTS = {
   scale:  { label: 'Scale',          hint: 'High spend, ROAS above average: protect and grow budget', light: '#047857', dark: '#34d399' },
@@ -168,7 +171,6 @@ const KW_COLS = [
   { key: 'text',            label: 'Keyword',   align: 'left' },
   { key: 'matchType',       label: 'Match',     align: 'left' },
   { key: 'qualityScore',    label: 'QS',        f: 'qs' },
-  { key: 'impressionShare', label: 'Impr. share', f: 'pct0' },
   ...COLS.slice(2),
 ];
 
@@ -237,9 +239,10 @@ function TermTable({ rows, cols, currency, theme, dark, action, sortInit = ['spe
 }
 
 // ------------------------------------------------------------ one platform
-function PlatformSearch({ platform, title, terms, keywords, currency, theme, dark }) {
+function PlatformSearch({ platform, title, terms, keywords, currency, theme, dark, focus }) {
   const [view, setView] = useState(platform === 'google' && keywords.length ? 'keywords' : 'terms'); // what the chart plots
-  const [tab, setTab] = useState('opp');
+  const [tab, setTab] = useState(focus?.tab || 'opp');
+  useEffect(() => { if (focus?.tab) { setTab(focus.tab); setQuad(null); } }, [focus]);
   const [quad, setQuad] = useState(null);
   const sum = k => terms.reduce((t, r) => t + r[k], 0);
   const avgRoas = sum('spend') > 0 ? sum('revenue') / sum('spend') : 0;
@@ -279,21 +282,16 @@ function PlatformSearch({ platform, title, terms, keywords, currency, theme, dar
   const allRows = quad ? termsQ.filter(r => r.quadrant === quad) : termsQ;
 
   return (
-    <div data-search-platform={platform} style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 14, marginBottom: 20, overflow: 'hidden' }}>
-      <div style={{ padding: '14px 20px', borderBottom: `1px solid ${theme.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 6,
-          background: platform === 'google' ? (dark ? '#3b1d1b' : '#fce8e6') : (dark ? '#3a2a10' : '#fff3e0'), color: platform === 'google' ? (dark ? '#fca5a5' : '#EA4335') : (dark ? '#fcd34d' : '#b45309'),
-          fontFamily: "'Space Grotesk', sans-serif" }}>{title}</span>
-        <span style={{ fontSize: 13, color: theme.textMuted }}>
-          {fmt(sum('spend'), 'currency', currency)} spend · {Math.round(sum('orders')).toLocaleString('en-US')} conv. · avg ROAS {avgRoas.toFixed(2)}x{avgCpa != null ? ` · avg CPA ${fmt(avgCpa, 'currency', currency)}` : ''}
-        </span>
-        {platform === 'google' && keywords.length > 0 && (
-          <span role="group" aria-label="Chart shows" style={{ marginLeft: 'auto', display: 'inline-flex', gap: 6 }}>
+    <div data-search-platform={platform}>
+      {platform === 'google' && keywords.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px 0', fontSize: 12, color: theme.textMuted }}>
+          Chart shows
+          <span role="group" aria-label="Chart shows" style={{ display: 'inline-flex', gap: 6 }}>
             <button aria-pressed={view === 'keywords'} onClick={() => setView('keywords')} style={chip(view === 'keywords')}>Keywords</button>
             <button aria-pressed={view === 'terms'} onClick={() => setView('terms')} style={chip(view === 'terms')}>Search terms</button>
           </span>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Quadrant summary: click to filter the "All" list */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10, padding: '14px 20px 4px' }}>
@@ -347,8 +345,57 @@ function PlatformSearch({ platform, title, terms, keywords, currency, theme, dar
   );
 }
 
+// ------------------------------------------------------------ summary strip
+// Totals for the platform, with the wasted-spend headline: spend on search
+// terms with no conversions, and how much of it is clear enough to act on
+function Summary({ terms, totals, currency, theme, dark, onWasted }) {
+  const kpi = kpiOf(totals);
+  const avgCpa = totals.orders > 0 ? totals.spend / totals.orders : null;
+  const zero = terms.filter(t => !(t.orders > 0) && t.spend > 0);
+  const wasted = zero.reduce((t, r) => t + r.spend, 0);
+  const actionable = zero.filter(r => r.clicks >= 10 || (avgCpa != null && r.spend >= avgCpa));
+  const actSpend = actionable.reduce((t, r) => t + r.spend, 0);
+  const share = totals.spend > 0 ? wasted / totals.spend : 0;
+  const red = dark ? '#f87171' : '#b91c1c';
+  const stat = (label, value) => (
+    <div style={{ minWidth: 0 }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: theme.textMuted, fontFamily: "'Space Grotesk', sans-serif" }}>{label}</div>
+      <div style={{ fontSize: 17, fontWeight: 700, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif" }}>{value}</div>
+    </div>
+  );
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: 12, padding: '14px 20px', borderBottom: `1px solid ${theme.border}` }}>
+      <div style={{ display: 'flex', gap: 22, flexWrap: 'wrap', alignItems: 'center', flex: '1 1 320px' }}>
+        {stat('Spend', fmt(totals.spend, 'currency', currency))}
+        {stat('Conv.', (Math.round(totals.orders * 10) / 10).toLocaleString('en-US'))}
+        {stat(kpi === 'roas' ? 'ROAS' : 'CPA', kpi === 'roas' ? `${(kpiValue(totals, kpi) || 0).toFixed(2)}x` : fmt(kpiValue(totals, kpi), 'currency', currency))}
+        {stat('Search terms', terms.length.toLocaleString('en-US'))}
+      </div>
+      <button data-wasted onClick={onWasted} disabled={!actionable.length}
+        title={actionable.length ? 'Open the negative candidates' : undefined}
+        style={{ flex: '1 1 300px', textAlign: 'left', border: `1px solid ${wasted > 0 ? red : theme.border}`, borderLeft: `4px solid ${wasted > 0 ? red : theme.border}`, borderRadius: 10,
+          background: theme.surface, padding: '8px 12px', cursor: actionable.length ? 'pointer' : 'default', fontFamily: "'DM Sans', sans-serif" }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase', color: red, fontFamily: "'Space Grotesk', sans-serif" }}>Wasted spend</div>
+        <div style={{ fontSize: 13, color: theme.textSecondary, lineHeight: 1.45 }}>
+          <b style={{ fontSize: 17, color: theme.textPrimary, fontFamily: "'Space Grotesk', sans-serif" }}>{fmt(wasted, 'currency', currency)}</b>
+          {' '}({Math.round(share * 100)}% of spend) on {zero.length} search term{zero.length === 1 ? '' : 's'} with no conversions.
+          {actionable.length > 0 && <> {fmt(actSpend, 'currency', currency)} of it on {actionable.length} term{actionable.length === 1 ? '' : 's'} with enough data to negate <span style={{ color: red, fontWeight: 600 }}>→ review</span></>}
+        </div>
+      </button>
+    </div>
+  );
+}
+
+const VIEWS = [
+  ['performance', 'Performance', 'Quadrants, opportunities, negatives and top performers'],
+  ['words', 'Words', 'Spend and results by word or phrase across search terms'],
+  ['movers', 'Movers', 'What changed vs the period before'],
+  ['overlap', 'Overlap', 'Search terms running through several campaigns or keywords'],
+  ['headroom', 'Headroom', 'Impression share and what limits it (Google)'],
+];
+
 // ------------------------------------------------------------ lens
-export default function SearchLens({ state, market, marketName, theme, darkMode }) {
+export default function SearchLens({ state, params, version = 0, market, marketName, theme, darkMode }) {
   const data = state?.data;
   const cur = data?.currency?.[market] || { google: 'SGD', amazon: 'SGD' };
   const google = useMemo(() => {
@@ -361,9 +408,6 @@ export default function SearchLens({ state, market, marketName, theme, darkMode 
       merge: (a, r) => {
         a.extra.matchType = a.extra.matchType || r.matchType || '';
         a.extra.qualityScore = a.extra.qualityScore ?? r.qualityScore;
-        // impression share: weighted by impressions across campaigns / ad groups
-        if (r.impressionShare != null) { a.extra._isw = (a.extra._isw || 0) + r.impressionShare * r.impressions; a.extra._iw = (a.extra._iw || 0) + r.impressions; }
-        a.extra.impressionShare = a.extra._iw > 0 ? a.extra._isw / a.extra._iw : null;
       },
     });
     // Keyword match type is often blank on the keyword itself: take it from the search terms it matched
@@ -381,6 +425,21 @@ export default function SearchLens({ state, market, marketName, theme, darkMode 
   const amazon = useMemo(() => (data ? aggregate(data.amazon.searchTerms.filter(r => r.market === market), { via: r => r.targeting }) : null), [data, market]);
   const tr = data?.translations || {};
   for (const list of [google?.terms, google?.keywords, amazon]) for (const r of list || []) if (tr[r.text]) r.tr = tr[r.text];
+  // Movers: the previous period's search terms, aggregated the same way
+  const aggregatePrev = useCallback((prev, platform) => {
+    const rows = platform === 'google' ? prev.google.searchTerms : prev.amazon.searchTerms;
+    const out = aggregate(rows.filter(r => r.market === market), { via: r => (platform === 'google' ? r.keyword : r.targeting) });
+    for (const r of out) if (tr[r.text] || prev.translations?.[r.text]) r.tr = tr[r.text] || prev.translations[r.text];
+    return out;
+  }, [market, tr]);
+
+  const hasGoogle = !!google && (google.terms.length > 0 || google.keywords.length > 0);
+  const hasAmazon = !!amazon && amazon.length > 0;
+  const [platformPick, setPlatform] = useState('google');
+  const platform = platformPick === 'amazon' ? (hasAmazon ? 'amazon' : 'google') : (hasGoogle ? 'google' : 'amazon');
+  const [view, setView] = useState('performance');
+  const [focus, setFocus] = useState(null);
+  const shownView = view === 'headroom' && platform !== 'google' ? 'performance' : view;
 
   if (state?.error) return <div style={{ padding: 20, color: darkMode ? '#fca5a5' : '#991b1b', fontSize: 13 }}>Could not load search data: {state.error}</div>;
   if (!data) {
@@ -391,18 +450,60 @@ export default function SearchLens({ state, market, marketName, theme, darkMode 
       </div>
     );
   }
-  const hasGoogle = google.terms.length > 0 || google.keywords.length > 0;
-  const hasAmazon = amazon.length > 0;
+  if (!hasGoogle && !hasAmazon) {
+    return (
+      <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 14, padding: '40px 24px', textAlign: 'center', color: theme.textMuted, fontSize: 14 }}>
+        No Google Search or Amazon search terms for {marketName || 'this market'} in this period.
+      </div>
+    );
+  }
+  const terms = platform === 'google' ? google.terms : amazon;
+  const rawTerms = (platform === 'google' ? data.google.searchTerms : data.amazon.searchTerms).filter(r => r.market === market);
+  const sum = k => terms.reduce((t, r) => t + (r[k] || 0), 0);
+  const totals = { spend: sum('spend'), orders: sum('orders'), revenue: sum('revenue'), clicks: sum('clicks'), impressions: sum('impressions') };
+  const currency = platform === 'google' ? cur.google : cur.amazon;
+  const views = VIEWS.filter(([k]) => k !== 'headroom' || platform === 'google');
+  const dark = darkMode;
+
   return (
     <div>
       {data.notes?.length > 0 && <div style={{ fontSize: 12, color: theme.textMuted, marginBottom: 10 }}>Not loaded this time (try Refresh): {data.notes.map(n => n.split(':')[0]).join(', ')}.</div>}
-      {hasGoogle && <PlatformSearch key={`g-${market}`} platform="google" title="Google Search" terms={google.terms} keywords={google.keywords} currency={cur.google} theme={theme} dark={darkMode} />}
-      {hasAmazon && <PlatformSearch key={`a-${market}`} platform="amazon" title="Amazon" terms={amazon} keywords={[]} currency={cur.amazon} theme={theme} dark={darkMode} />}
-      {!hasGoogle && !hasAmazon && (
-        <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 14, padding: '40px 24px', textAlign: 'center', color: theme.textMuted, fontSize: 14 }}>
-          No Google Search or Amazon search terms for {marketName || 'this market'} in this period.
+      <div style={{ background: theme.surface, border: `1px solid ${theme.border}`, borderRadius: 14, marginBottom: 20, overflow: 'hidden' }}>
+        {/* Platform + view */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: '12px 20px', borderBottom: `1px solid ${theme.border}` }}>
+          {hasGoogle && hasAmazon ? (
+            <Chips label="Platform" theme={theme} value={platform} onChange={p => { setPlatform(p); setFocus(null); }} items={[['google', 'Google Search'], ['amazon', 'Amazon']]} />
+          ) : (
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '3px 10px', borderRadius: 6, fontFamily: "'Space Grotesk', sans-serif",
+              background: platform === 'google' ? (dark ? '#3b1d1b' : '#fce8e6') : (dark ? '#3a2a10' : '#fff3e0'), color: platform === 'google' ? (dark ? '#fca5a5' : '#EA4335') : (dark ? '#fcd34d' : '#b45309') }}>
+              {platform === 'google' ? 'Google Search' : 'Amazon'}
+            </span>
+          )}
+          <div role="tablist" aria-label="Search Lens view" style={{ display: 'flex', gap: 2, background: theme.surfaceAlt, borderRadius: 9, padding: 3, marginLeft: 'auto', flexWrap: 'wrap' }}>
+            {views.map(([k, label, tip]) => {
+              const on = shownView === k;
+              return (
+                <button key={k} role="tab" aria-selected={on} title={tip} onClick={() => setView(k)} style={{
+                  border: 'none', borderRadius: 7, padding: '6px 12px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: "'DM Sans', sans-serif",
+                  background: on ? theme.surface : 'transparent', color: on ? theme.accent : theme.textSecondary, boxShadow: on ? '0 1px 3px rgba(15,23,42,0.12)' : 'none',
+                }}>{label}</button>
+              );
+            })}
+          </div>
         </div>
-      )}
+
+        <Summary terms={terms} totals={totals} currency={currency} theme={theme} dark={dark}
+          onWasted={() => { setView('performance'); setFocus({ tab: 'neg', n: Date.now() }); }} />
+
+        {shownView === 'performance' && (
+          <PlatformSearch key={`${platform}-${market}`} platform={platform} title={platform === 'google' ? 'Google Search' : 'Amazon'}
+            terms={terms} keywords={platform === 'google' ? google.keywords : []} currency={currency} theme={theme} dark={dark} focus={focus} />
+        )}
+        {shownView === 'words' && <WordsView key={`${platform}-${market}`} terms={terms} totals={totals} currency={currency} theme={theme} dark={dark} />}
+        {shownView === 'movers' && <MoversView key={`${platform}-${market}`} platform={platform} terms={terms} totals={totals} currency={currency} aggregatePrev={aggregatePrev} params={params} version={version} theme={theme} dark={dark} />}
+        {shownView === 'overlap' && <OverlapView key={`${platform}-${market}`} platform={platform} rawTerms={rawTerms} totals={totals} currency={currency} translations={tr} theme={theme} dark={dark} />}
+        {shownView === 'headroom' && <HeadroomView key={market} market={market} totals={totals} currency={currency} params={params} version={version} theme={theme} dark={dark} />}
+      </div>
     </div>
   );
 }

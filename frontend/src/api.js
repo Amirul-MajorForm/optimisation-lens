@@ -46,6 +46,9 @@ export const fetchStatus = (params, signal) => getJSON('/api/status', params, si
 
 // Search Lens: Google keywords / search terms + Amazon search terms (all markets)
 export const fetchSearch = (params, signal) => getJSON('/api/search', params, signal);
+// Search Lens views loaded only when opened: Movers (previous period) and Headroom (impression share)
+export const fetchSearchPrevious = (params, signal) => getJSON('/api/search/previous', params, signal);
+export const fetchSearchHeadroom = (params, signal) => getJSON('/api/search/headroom', params, signal);
 
 // Pacing Lens: MajorPace sheet rows; platform links load separately (slower)
 export async function fetchPacing(signal, fresh = false) {

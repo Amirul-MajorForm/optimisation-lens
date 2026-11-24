@@ -94,7 +94,11 @@ const ADSET_DIMS = ['fads_adset_name', 'ttads_adgroup_name', 'gadw_ad_group_name
   'amazonads_search_term', 'gadw_segments_conversion_action_name', 'fads_result_values_performance_indicator'];
 const DIMENSION_KEYS = ['campaign_name', 'date', 'year_month', 'ad_name', ...ADSET_DIMS];
 const WEIGHTED_AVG = { fads_video_average_watch_time: 'fads_video_play_actions', ttads_average_video_play: 'ttads_video_play_actions',
-  gadw_metrics_search_impression_share: 'impressions' };
+  gadw_metrics_search_impression_share: 'impressions',
+  // Search Lens headroom (campaign level): shares are re-weighted, never summed
+  gadw_metrics_search_budget_lost_impression_share: 'impressions', gadw_metrics_search_rank_lost_impression_share: 'impressions',
+  gadw_metrics_search_top_impression_share: 'impressions', gadw_metrics_search_absolute_top_impression_share: 'impressions',
+  gadw_metrics_search_click_share: 'clicks' };
 function mergeRows(...results) {
   const byName = new Map();
   for (const r of results.flatMap(x => x?.data || [])) {
@@ -641,18 +645,18 @@ async function translateTerms(terms) {
 }
 const titleCase = s => String(s || '').toLowerCase().replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase());
 
-app.get('/api/search', async (req, res) => {
-  try {
-    if (!requireKey(res)) return;
-    const range = resolveDateRange(req.query);
-    const result = await cached(`search_${range.startDate}_${range.endDate}`, async () => {
+// Search data for one date range: Google keywords + search terms, Amazon
+// search terms (3 requests). Shared by Search Lens and its Movers view (which
+// also loads the previous period).
+function fetchSearchData(range, priority = PRIORITY.user, ttl = SEARCH_TTL) {
+  return cached(`search_${range.startDate}_${range.endDate}`, async () => {
       const base = ['amount_spent', 'impressions', 'clicks'];
-      const opts = { priority: PRIORITY.user };
+      const opts = { priority };
       const notes = [];
       const run = (label, ...args) => withTimeout(makeQuery(...args), 90000, label)
         .catch(err => { notes.push(`${label}: ${err.message}`); console.error('[search]', label, err.message); return null; });
       const [kwRaw, gstRaw, astRaw] = await Promise.all([
-        run('Google keywords', ALL_ACCOUNTS.google, [...base, 'conversions', 'gadw_metrics_conversions_value', 'gadw_metrics_search_impression_share'], range,
+        run('Google keywords', ALL_ACCOUNTS.google, [...base, 'conversions', 'gadw_metrics_conversions_value'], range,
           { ...opts, dimensions: ['campaign_name', 'gadw_ad_group_criterion_keyword_text', 'gadw_ad_group_criterion_match_type', 'gadw_ad_group_criterion_quality_info_quality_score'] }),
         run('Google search terms', ALL_ACCOUNTS.google, [...base, 'conversions', 'gadw_metrics_conversions_value'], range,
           { ...opts, dimensions: ['campaign_name', 'gadw_search_term_view_search_term', 'gadw_segments_keyword_info_text', 'gadw_segments_keyword_info_match_type'] }),
@@ -663,10 +667,8 @@ app.get('/api/search', async (req, res) => {
       const keep = r => r.spend > 0 || r.clicks > 0 || r.orders > 0;
       const googleKeywords = (kwRaw?.data || []).map(row => {
         const r = normalizeRow(row);
-        const is = parseFloat(r.metrics_search_impression_share);
         return { market: detectMarket(r.campaign_name), campaign: r.campaign_name, text: r.ad_group_criterion_keyword_text || '',
           matchType: titleCase(r.ad_group_criterion_match_type), qualityScore: parseFloat(r.ad_group_criterion_quality_info_quality_score) || null,
-          impressionShare: Number.isFinite(is) ? is : null,
           spend: num(r.spend), impressions: num(r.impressions), clicks: num(r.clicks), orders: r.orders || 0, revenue: r.revenue || 0 };
       }).filter(r => r.text && keep(r));
       const googleTerms = (gstRaw?.data || []).map(row => {
@@ -685,10 +687,102 @@ app.get('/api/search', async (req, res) => {
       const currency = Object.fromEntries(Object.entries(MARKETS).map(([m, c]) => [m, { google: c.currency.google, amazon: c.currency.amazon || 'SGD' }]));
       const translations = await translateTerms([...googleKeywords, ...googleTerms, ...amazonTerms].map(r => r.text.trim())).catch(() => ({}));
       return { dateRange: range, currency, google: { keywords: googleKeywords, searchTerms: googleTerms }, amazon: { searchTerms: amazonTerms }, translations, notes };
+  }, ttl);
+}
+
+app.get('/api/search', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    res.json(await fetchSearchData(resolveDateRange(req.query)));
+  } catch (err) {
+    console.error('[search error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Movers: the same search data for the equal-length period before (historical,
+// cached an hour). Loaded only when the Movers view is opened.
+app.get('/api/search/previous', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const range = previousRange(resolveDateRange(req.query));
+    res.json(await fetchSearchData(range, PRIORITY.normal, PREVIOUS_PERIOD_TTL));
+  } catch (err) {
+    console.error('[search previous error]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Headroom (Google): impression share, share lost to budget / rank, top and
+// absolute-top share, click share. Loaded only when the Headroom view is opened.
+// - Campaigns: one request; TMR returns proper shares for the whole range.
+// - Keywords: TMR adds daily shares together over a multi-day range, so keyword
+//   rows come per day and are combined here, each day weighted by its eligible
+//   impressions (impressions / share) or eligible clicks for click share.
+//   Lost-to-budget is campaign-only in Google Ads.
+const HEADROOM_SHARES = ['search_impression_share', 'search_rank_lost_impression_share', 'search_top_impression_share', 'search_absolute_top_impression_share', 'search_click_share'];
+const shareNum = v => { const n = parseFloat(v); return Number.isFinite(n) ? n : null; };
+app.get('/api/search/headroom', async (req, res) => {
+  try {
+    if (!requireKey(res)) return;
+    const range = resolveDateRange(req.query);
+    const result = await cached(`search_headroom_${range.startDate}_${range.endDate}`, async () => {
+      const notes = [];
+      const opts = { priority: PRIORITY.user };
+      const run = (label, ...args) => withTimeout(makeQuery(...args), 90000, label)
+        .catch(err => { notes.push(`${label}: ${err.message}`); console.error('[headroom]', label, err.message); return null; });
+      const perf = ['amount_spent', 'impressions', 'clicks', 'conversions', 'gadw_metrics_conversions_value'];
+      const [campRaw, kwRaw] = await Promise.all([
+        run('Campaign impression share', ALL_ACCOUNTS.google, [...perf, 'gadw_metrics_search_impression_share', 'gadw_metrics_search_budget_lost_impression_share',
+          'gadw_metrics_search_rank_lost_impression_share', 'gadw_metrics_search_top_impression_share', 'gadw_metrics_search_absolute_top_impression_share', 'gadw_metrics_search_click_share'], range,
+          { ...opts, dimensions: ['campaign_name'] }).then(raw => (raw ? applyGoogleConversionAction(raw, range, opts) : raw)),
+        run('Keyword impression share', ALL_ACCOUNTS.google, [...perf, ...HEADROOM_SHARES.map(f => `gadw_metrics_${f}`)], range,
+          { ...opts, dimensions: ['campaign_name', 'gadw_ad_group_criterion_keyword_text', 'gadw_ad_group_criterion_match_type', 'date'] }),
+      ]);
+      const pick = (r, f) => shareNum(r[`gadw_metrics_${f}`] ?? r[`metrics_${f}`]);
+      const campaigns = (campRaw?.data || []).map(row => {
+        const r = normalizeRow(row);
+        return {
+          market: detectMarket(r.campaign_name), campaign: r.campaign_name,
+          spend: parseFloat(r.spend) || 0, impressions: parseFloat(r.impressions) || 0, clicks: parseFloat(r.clicks) || 0, orders: r.orders || 0, revenue: r.revenue || 0,
+          impressionShare: pick(row, 'search_impression_share'), lostBudget: pick(row, 'search_budget_lost_impression_share'),
+          lostRank: pick(row, 'search_rank_lost_impression_share'), topShare: pick(row, 'search_top_impression_share'),
+          absTopShare: pick(row, 'search_absolute_top_impression_share'), clickShare: pick(row, 'search_click_share'),
+        };
+      }).filter(c => c.impressionShare != null && c.impressions > 0);
+      // Keywords: combine the daily rows
+      const byKw = new Map();
+      for (const row of kwRaw?.data || []) {
+        const r = normalizeRow(row);
+        const text = r.ad_group_criterion_keyword_text || '';
+        if (!text) continue;
+        const key = `${r.campaign_name}|${text}|${r.ad_group_criterion_match_type || ''}`;
+        const k = byKw.get(key) || { market: detectMarket(r.campaign_name), campaign: r.campaign_name, text, matchType: titleCase(r.ad_group_criterion_match_type),
+          spend: 0, impressions: 0, clicks: 0, orders: 0, revenue: 0, w: {} };
+        const impr = parseFloat(r.impressions) || 0, clicks = parseFloat(r.clicks) || 0;
+        k.spend += parseFloat(r.spend) || 0; k.impressions += impr; k.clicks += clicks; k.orders += r.orders || 0; k.revenue += r.revenue || 0;
+        const is = pick(row, 'search_impression_share');
+        const eligible = is > 0 ? impr / is : 0;
+        const cs = pick(row, 'search_click_share');
+        for (const f of HEADROOM_SHARES) {
+          const v = pick(row, f);
+          const wt = f === 'search_click_share' ? (cs > 0 ? clicks / cs : 0) : eligible;
+          if (v == null || !(wt > 0)) continue;
+          const a = k.w[f] || (k.w[f] = { num: 0, den: 0 });
+          a.num += v * wt; a.den += wt;
+        }
+        byKw.set(key, k);
+      }
+      const share = (k, f) => (k.w[f]?.den > 0 ? k.w[f].num / k.w[f].den : null);
+      const keywords = [...byKw.values()].filter(k => k.impressions > 0).map(({ w, ...k }) => ({
+        ...k, impressionShare: share({ w }, 'search_impression_share'), lostRank: share({ w }, 'search_rank_lost_impression_share'),
+        topShare: share({ w }, 'search_top_impression_share'), absTopShare: share({ w }, 'search_absolute_top_impression_share'), clickShare: share({ w }, 'search_click_share'),
+      }));
+      return { dateRange: range, campaigns, keywords, notes };
     }, SEARCH_TTL);
     res.json(result);
   } catch (err) {
-    console.error('[search error]', err.message);
+    console.error('[headroom error]', err.message);
     res.status(500).json({ error: err.message });
   }
 });
