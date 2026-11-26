@@ -8,7 +8,8 @@ import { loadGoalSheet, scoreGoals, previousRange } from './goals.js';
 import { normalizeRow } from './tmr.js';
 import { groupSales } from './sales.js';
 import { loadPacing, platformLink } from './pacing.js';
-import { currentClient, runWithClient, CLIENTS } from './clients.js';
+import { currentClient, runWithClient, CLIENTS, REAL_CLIENTS } from './clients.js';
+import { demoQuery, DEMO_TRANSLATIONS } from './demo.js';
 import { PRIORITY, CPAS_MARKET, detectMarket, TEAM_ID, MARKETS, ACCOUNTS, ALL_ACCOUNTS, CPAS_ACCOUNTS, AMAZON_ACCOUNTS, isCommerceCampaign, isCommerceRow, queryTMR, parsePlatformResult, splitByMarket, getDateRange } from './tmr.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -55,7 +56,10 @@ function resolveDateRange(query) {
 }
 
 // opts.dimensions defaults to per-campaign rows; opts.filters narrows the query
-const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'], filters, priority } = {}) => queryTMR(TMR_API_KEY, TEAM_ID, {
+// The demo client's queries are answered in-process (demo.js): instant, no TMR
+const queryOnce = (accounts, metrics, dateRange, { dimensions = ['campaign_name'], filters, priority } = {}) => currentClient().demo
+  ? Promise.resolve(demoQuery({ accounts, metrics, dimensions, dateRange, filters }))
+  : queryTMR(TMR_API_KEY, TEAM_ID, {
   accounts,
   dimensions,
   metrics,
@@ -236,7 +240,7 @@ const GOAL_METRICS = {
 };
 
 function requireKey(res) {
-  if (TMR_API_KEY) return true;
+  if (TMR_API_KEY || currentClient().demo) return true;
   res.status(500).json({ error: 'TMR_API_KEY not set in .env — add TMR_API_KEY=your_key' });
   return false;
 }
@@ -611,6 +615,7 @@ const glossaryTranslate = t => {
   return out.every(Boolean) ? out.join(' ') : null;
 };
 async function translateTerms(terms) {
+  if (currentClient().demo) return Object.fromEntries(terms.filter(t => DEMO_TRANSLATIONS[t]).map(t => [t, DEMO_TRANSLATIONS[t]]));
   let todo = [...new Set(terms.filter(t => CJK.test(t) && !translationCache.has(t)))];
   const key = process.env.GOOGLE_TRANSLATE_API_KEY;
   for (let i = 0; i < todo.length && key; i += 100) {
@@ -801,9 +806,11 @@ app.get('/api/pacing', async (req, res) => {
 
 // Welcome page: the top 5 pacing flags across every client (from the pacing
 // sheets only, no TMR calls, so it loads fast)
-app.get('/api/flags', async (_req, res) => {
+// Homepage flags cover the real clients; demo mode (?demo=1) covers the demo client only
+const flagClients = req => (req.query.demo === '1' ? Object.values(CLIENTS).filter(c => c.demo) : REAL_CLIENTS);
+app.get('/api/flags', async (req, res) => {
   const flags = [], notes = [];
-  await Promise.all(Object.values(CLIENTS).map(client => runWithClient(client.id, async () => {
+  await Promise.all(flagClients(req).map(client => runWithClient(client.id, async () => {
     try {
       const { rows, pacingDate, marketNames } = await cached('pacing_sheet', loadPacing, PACING_TTL);
       for (const r of rows) {
@@ -884,16 +891,17 @@ function performanceFlags(client, cur, prev) {
   }
   return out;
 }
-app.get('/api/flags/performance', async (_req, res) => {
-  if (!requireKey(res)) return;
+app.get('/api/flags/performance', async (req, res) => {
+  const demo = req.query.demo === '1';
+  if (!demo && !requireKey(res)) return;
   const cur = getDateRange(7);
   const prev = { startDate: isoDay(Date.parse(cur.startDate) - 7 * DAY), endDate: isoDay(Date.parse(cur.startDate) - DAY) };
   try {
     // The finished result is kept until the 7-day window moves (next day), so
     // visitors after the first one get it instantly
-    const result = await runWithClient('', () => cached(`perf_flags_${cur.endDate}`, async () => {
+    const result = await runWithClient(demo ? 'demo' : '', () => cached(`perf_flags_${cur.endDate}${demo ? '_demo' : ''}`, async () => {
       const flags = [], notes = [];
-      await Promise.all(Object.values(CLIENTS).map(client => runWithClient(client.id, async () => {
+      await Promise.all(flagClients(req).map(client => runWithClient(client.id, async () => {
         try {
           const [a, b] = await Promise.all([fetchBrand(cur, PERF_FLAG_TTL), fetchBrand(prev, PERF_FLAG_TTL)]);
           flags.push(...performanceFlags(client, a, b));
@@ -924,6 +932,8 @@ const LINK_SOURCES = [
 ];
 app.get('/api/pacing/links', async (_req, res) => {
   try {
+    // Demo campaigns do not exist in any ad platform: no links
+    if (currentClient().demo) return res.json({ links: {}, accountLinks: {}, notes: [] });
     if (!requireKey(res)) return;
     const result = await cached('pacing_links', async () => {
       const end = getDateRange(1).endDate;

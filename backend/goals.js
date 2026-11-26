@@ -8,6 +8,7 @@ const PUB_BASE = (process.env.GOALS_SHEET_PUB_URL ||
   'https://docs.google.com/spreadsheets/d/e/2PACX-1vRz1wA-dlSOyHizgbiCM2_aQvh128aoEXHFJJKTbq5YFaOVMOQnwgir254-jN1sniUIUeB5C_8lMSZl/pub'
 ).replace(/\?.*$/, '').replace(/\/pub(html)?$/, '');
 
+import { demoSheet } from './demo.js';
 import { currentClient } from './clients.js';
 
 export const GOAL_TABS = {
@@ -67,6 +68,8 @@ export function parseCsv(text) {
 // Google Sheets (the HTML view leaves them out), so it is tried first; the HTML
 // view is the fallback, where hidden rows are detected and reported instead.
 export async function fetchTab(gid) {
+  // Demo client: generated tabs, no network
+  if (currentClient().demo) return demoSheet(gid);
   try {
     const res = await fetch(`${PUB_BASE}/pub?gid=${gid}&single=true&output=csv`, { redirect: 'follow', signal: AbortSignal.timeout(20000) });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

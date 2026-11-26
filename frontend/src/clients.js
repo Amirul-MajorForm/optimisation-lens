@@ -67,12 +67,47 @@ export const CLIENTS = {
       dark:  { accent: '#34d399', accentLight: '#164032', grad: ['#059669', '#0d9488'], chart: '#34d399' },
     },
   },
+  // Made-up brand for pitches and client demos: generated data, instant loading
+  demo: {
+    id: 'demo',
+    name: 'Brightleaf (Demo)',
+    demo: true,
+    lenses: ['brand', 'commerce', 'sales', 'search', 'pacing'],
+    lensLabels: {},
+    markets: [
+      { value: 'sg', label: 'SG' },
+      { value: 'my', label: 'MY' },
+      { value: 'jp', label: 'JP', optional: true },
+    ],
+    commerceVariant: 'commerce',
+    topAdsOnCommerce: true,
+    // teal
+    sidebar: { bg: '#0b2729', hover: '#113538', active: '#17464a', border: '#153d40', text: '#7fb8b6', label: '#477a79', accent: '#2dd4bf' },
+    accent: {
+      light: { accent: '#0d9488', accentLight: '#ccfbf1', grad: ['#0d9488', '#0891b2'], chart: '#0d9488' },
+      dark:  { accent: '#2dd4bf', accentLight: '#134e4a', grad: ['#0d9488', '#0891b2'], chart: '#2dd4bf' },
+    },
+  },
 };
 export const DEFAULT_CLIENT = 'oatside';
-export const CLIENT_LIST = Object.values(CLIENTS);
+
+// Demo mode, for pitches: a link with ?demo=1 shows only the demo client (and
+// only its alerts on the homepage), so no real client names or numbers are on
+// screen. It lasts for the browser tab; ?demo=0 switches it off.
+export function isDemoMode() {
+  try {
+    const p = new URLSearchParams(window.location.search).get('demo');
+    if (p === '1') window.sessionStorage.setItem('majorview.demo', '1');
+    if (p === '0') window.sessionStorage.removeItem('majorview.demo');
+    return window.sessionStorage.getItem('majorview.demo') === '1';
+  } catch { return false; }
+}
+export const DEMO_MODE = typeof window !== 'undefined' && isDemoMode();
+export const CLIENT_LIST = Object.values(CLIENTS).filter(c => !DEMO_MODE || c.demo);
 
 const STORAGE_KEY = 'majorview.client';
 export function initialClient() {
+  if (DEMO_MODE) return 'demo';
   try {
     const fromUrl = new URLSearchParams(window.location.search).get('client');
     if (fromUrl && CLIENTS[fromUrl]) return fromUrl;
@@ -92,7 +127,10 @@ export function rememberClient(id, { inUrl = false } = {}) {
   } catch { /* ignore */ }
 }
 export function clientInUrl() {
-  try { return CLIENTS[new URLSearchParams(window.location.search).get('client')] ? true : false; } catch { return false; }
+  try {
+    const id = new URLSearchParams(window.location.search).get('client');
+    return !!CLIENTS[id] && (!DEMO_MODE || !!CLIENTS[id].demo); // demo mode never opens a real client
+  } catch { return false; }
 }
 export function clearClientInUrl() {
   try {

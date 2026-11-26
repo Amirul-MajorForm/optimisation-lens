@@ -7,8 +7,8 @@ const withClient = url => `${url}${url.includes('?') ? '&' : '?'}client=${encode
 const apiFetch = (url, opts) => fetch(url, opts);
 
 // Welcome page: top pacing flags / performance flags across every client
-export async function fetchFlags(signal, kind = 'pacing') {
-  const res = await apiFetch(kind === 'performance' ? '/api/flags/performance' : '/api/flags', { signal });
+export async function fetchFlags(signal, kind = 'pacing', demo = false) {
+  const res = await apiFetch(`${kind === 'performance' ? '/api/flags/performance' : '/api/flags'}${demo ? '?demo=1' : ''}`, { signal });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);

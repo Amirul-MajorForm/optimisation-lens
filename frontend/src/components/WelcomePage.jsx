@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchFlags } from '../api.js';
-import { CLIENTS } from '../clients.js';
+import { CLIENTS, DEMO_MODE } from '../clients.js';
 
 // Homepage: a typed-out greeting and two cards, the top 5 pacing
 // alerts and the top 5 performance alerts across every client. Clicking an
@@ -112,7 +112,7 @@ function AlertCard({ title, subtitle, testId, state, describe, empty, loadingTex
 // - performance: valid until the "last 7 days" window moves (the next day)
 // - pacing: shown at once; re-read quietly in the background after 30 minutes
 const memory = {};
-const STORE = kind => `majorview.flags.${kind}`;
+const STORE = kind => `majorview.flags.${kind}${DEMO_MODE ? '.demo' : ''}`;
 const yesterdayUTC = () => { const t = new Date(); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
 function readSaved(kind) {
   if (memory[kind]) return memory[kind];
@@ -132,7 +132,7 @@ const isFresh = (kind, v) => (kind === 'performance'
 // and its result is saved for when they come back
 const inflight = {};
 function loadFlags(kind) {
-  inflight[kind] ||= fetchFlags(undefined, kind).then(data => { save(kind, data); return data; }).finally(() => { delete inflight[kind]; });
+  inflight[kind] ||= fetchFlags(undefined, kind, DEMO_MODE).then(data => { save(kind, data); return data; }).finally(() => { delete inflight[kind]; });
   return inflight[kind];
 }
 

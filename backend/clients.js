@@ -5,6 +5,7 @@
 // are prefixed with the client so two clients' data never mix.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { DEMO_ACCOUNTS, demoMarket } from './demo.js';
 
 // ---------------------------------------------------------------- OATSIDE
 // Account currency per platform, as reported by each ad account in TMR.
@@ -172,7 +173,34 @@ const BLACKMORES = {
   detectMarket: () => 'sg',
 };
 
-export const CLIENTS = { oatside: OATSIDE, moverepeat: MOVEREPEAT, blackmores: BLACKMORES };
+// ---------------------------------------------------------------- Demo
+// "Brightleaf", a made-up tea brand for pitches and client demos. Its data is
+// generated in demo.js (no Two Minute Reports or sheet requests), so every
+// lens loads instantly. SG (all platforms + Amazon), MY (Meta bills in MYR),
+// JP (Amazon, JPY).
+const DEMO = {
+  id: 'demo',
+  name: 'Brightleaf (Demo)',
+  demo: true,
+  markets: {
+    sg: { name: 'Brightleaf SG', currency: SGD_ALL },
+    my: { name: 'Brightleaf MY', currency: { tiktok: 'SGD', meta: 'MYR', google: 'SGD' } },
+    jp: { name: 'Brightleaf JP', currency: { tiktok: 'SGD', meta: 'SGD', google: 'SGD', amazon: 'JPY' } },
+  },
+  accounts: { tiktok: { ...DEMO_ACCOUNTS.tiktok }, meta: { ...DEMO_ACCOUNTS.meta }, google: { ...DEMO_ACCOUNTS.google } },
+  extraAccounts: {},
+  amazon: [DEMO_ACCOUNTS.amazonSG, DEMO_ACCOUNTS.amazonJP],
+  cpas: { local: [DEMO_ACCOUNTS.cpasMY, DEMO_ACCOUNTS.cpasSG], SGD: [] },
+  cpasMarket: { [DEMO_ACCOUNTS.cpasMY]: 'my', [DEMO_ACCOUNTS.cpasSG]: 'sg' },
+  goalsTab: 'demo-goals',
+  pacingTabs: { Brand: 'demo-pacing-brand', Ecomm: 'demo-pacing-ecomm' },
+  pacingRow: null,
+  detectMarket: demoMarket,
+};
+
+export const CLIENTS = { oatside: OATSIDE, moverepeat: MOVEREPEAT, blackmores: BLACKMORES, demo: DEMO };
+// Real clients (the homepage flags leave the demo out, and demo mode shows only it)
+export const REAL_CLIENTS = Object.values(CLIENTS).filter(c => !c.demo);
 export const DEFAULT_CLIENT = 'oatside';
 
 // ---------------------------------------------------------------- request context
